@@ -56,6 +56,7 @@ class Settings(BaseSettings):
 
     # Claude Config
     claude_config_path: Optional[str] = None
+    claude_credentials_path: Optional[str] = None
 
     class Config:
         env_file = ".env"

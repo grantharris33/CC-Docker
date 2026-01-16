@@ -38,6 +38,7 @@ class ContainerManager:
         workspace_path: str,
         environment: Dict[str, str],
         claude_config_path: Optional[str] = None,
+        claude_credentials_path: Optional[str] = None,
     ) -> ContainerInfo:
         """Create a new container for a Claude Code session."""
         docker = await self._get_docker()
@@ -68,6 +69,12 @@ class ContainerManager:
         if claude_config_path:
             config["HostConfig"]["Binds"].append(
                 f"{claude_config_path}:/home/claude/.claude:rw"
+            )
+
+        # Add Claude credentials mount if available
+        if claude_credentials_path:
+            config["HostConfig"]["Binds"].append(
+                f"{claude_credentials_path}:/home/claude/.claude/.credentials.json:ro"
             )
 
         logger.info(f"Creating container for session {session_id}")

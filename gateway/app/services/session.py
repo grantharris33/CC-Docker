@@ -76,6 +76,7 @@ class SessionService:
             workspace_path=workspace_path,
             environment=environment,
             claude_config_path=settings.claude_config_path,
+            claude_credentials_path=settings.claude_credentials_path,
         )
 
         # Create database record

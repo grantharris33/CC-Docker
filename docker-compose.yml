@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///data/cc-docker.db
+      - REDIS_URL=redis://redis:6379
+      - MINIO_URL=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - CONTAINER_IMAGE=cc-docker-container:latest
+      - CONTAINER_NETWORK=cc-docker_cc-internal
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - claude-config:/root/.claude:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - cc-internal
+      - cc-external
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - cc-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9001:9001"  # MinIO Console (optional for debugging)
+    networks:
+      - cc-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-data:
+  minio-data:
+  claude-config:
+    # Mount your pre-authenticated Claude config here
+    # Example: docker volume create --driver local --opt type=none --opt device=/path/to/.claude --opt o=bind claude-config
+
+networks:
+  cc-internal:
+    driver: bridge
+    internal: false  # Containers need to reach Redis/MinIO
+  cc-external:
+    driver: bridge

@@ -42,10 +42,16 @@ class ClaudeRunner:
         cmd = [
             "claude",
             "-p", prompt,
-            "--dangerously-skip-permissions",
             "--output-format", "stream-json",
-            "--cwd", self.config.workspace_path,
+            "--verbose",  # Required for stream-json with -p
         ]
+
+        # Add configuration from claude_config if available
+        if self.config.claude_config:
+            cmd.extend(self.config.claude_config.to_claude_args())
+        else:
+            # Default: bypass permissions
+            cmd.append("--dangerously-skip-permissions")
 
         if resume:
             cmd.extend(["--resume", self.config.session_id])
@@ -57,6 +63,7 @@ class ClaudeRunner:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=self.config.workspace_path,
             env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "cc-docker"},
         )
 
@@ -108,20 +115,26 @@ class ClaudeRunner:
     async def _stream_output(self):
         """Stream and parse Claude Code output."""
         if not self._process or not self._process.stdout:
+            logger.warning("No process or stdout available")
             return
 
         self.parser.reset()
+        total_bytes = 0
 
         while True:
             chunk = await self._process.stdout.read(4096)
             if not chunk:
+                logger.debug(f"Stream ended after {total_bytes} bytes")
                 break
 
+            total_bytes += len(chunk)
             # Parse JSON objects from stream
             data = chunk.decode("utf-8", errors="replace")
+            logger.debug(f"Received chunk ({len(chunk)} bytes): {data[:100]}...")
             messages = self.parser.feed(data)
 
             for message in messages:
+                logger.info(f"Parsed message type: {message.get('type')}")
                 yield message
 
     async def stop(self) -> None:

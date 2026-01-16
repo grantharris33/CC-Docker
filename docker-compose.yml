@@ -18,10 +18,10 @@ services:
       - CONTAINER_IMAGE=cc-docker-container:latest
       - CONTAINER_NETWORK=cc-docker_cc-internal
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-/Users/grant.harris/.claude}
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock
-      - claude-config:/root/.claude:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -40,6 +40,8 @@ services:
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"  # Expose for local development
     volumes:
       - redis-data:/data
     networks:
@@ -59,6 +61,7 @@ services:
     volumes:
       - minio-data:/data
     ports:
+      - "9000:9000"  # MinIO API
       - "9001:9001"  # MinIO Console (optional for debugging)
     networks:
       - cc-internal
@@ -71,9 +74,6 @@ services:
 volumes:
   redis-data:
   minio-data:
-  claude-config:
-    # Mount your pre-authenticated Claude config here
-    # Example: docker volume create --driver local --opt type=none --opt device=/path/to/.claude --opt o=bind claude-config
 
 networks:
   cc-internal:

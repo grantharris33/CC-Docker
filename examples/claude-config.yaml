@@ -1,0 +1,75 @@
+# Claude Code Configuration Example
+# This file shows all available configuration options for plugins, MCPs, and skills
+
+# MCP (Model Context Protocol) Servers
+# These extend Claude's capabilities with custom tools
+mcp_servers:
+  # Stdio-based MCP server example
+  filesystem:
+    command: "npx"
+    args: ["-y", "@anthropic-ai/mcp-server-filesystem"]
+    env:
+      FILESYSTEM_ROOT: "/workspace"
+
+  # HTTP/SSE MCP server example
+  # asana:
+  #   type: "sse"
+  #   url: "https://mcp.asana.com/sse"
+
+  # Custom MCP server with authentication
+  # api_server:
+  #   type: "http"
+  #   url: "https://api.example.com/mcp"
+  #   headers:
+  #     Authorization: "Bearer ${API_TOKEN}"
+
+# Plugin directories to load
+plugin_dirs:
+  - "/plugins"
+  # - "/home/claude/.claude/plugins"
+
+# Model selection (optional - defaults to Claude's default)
+# model: "sonnet"  # or "opus", "claude-3-5-sonnet-20241022", etc.
+
+# Tool permissions
+allowed_tools:
+  - "*"  # Allow all tools
+  # Or specify specific tools:
+  # - "Read"
+  # - "Write"
+  # - "Edit"
+  # - "Bash"
+
+disallowed_tools: []
+  # - "WebFetch"  # Disable web access
+  # - "Bash"      # Disable shell access
+
+# System prompt customization
+# system_prompt: "You are a helpful coding assistant."
+append_system_prompt: |
+  Additional context for this session:
+  - This is running in a Docker container
+  - All file operations are scoped to /workspace
+
+# Custom agents
+custom_agents:
+  code-reviewer:
+    description: "Reviews code for quality and best practices"
+    prompt: "You are a senior code reviewer. Focus on code quality, security, and performance."
+
+  # test-writer:
+  #   description: "Writes comprehensive tests"
+  #   prompt: "You are a test engineer. Write thorough unit and integration tests."
+
+# Skills/Slash commands
+skills_enabled: true
+# disabled_skills:
+#   - "commit"
+#   - "review"
+
+# Verbose output (useful for debugging)
+verbose: false
+
+# Permission mode
+# Options: bypassPermissions, default, plan, acceptEdits, delegate, dontAsk
+permission_mode: "bypassPermissions"

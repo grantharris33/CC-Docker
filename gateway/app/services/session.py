@@ -52,14 +52,23 @@ class SessionService:
         )
 
         # Build environment variables for container
+        # Use Docker network hostname for Redis (containers can't use localhost)
+        container_redis_url = settings.redis_url.replace("localhost", "redis").replace("127.0.0.1", "redis")
         environment = {
             "SESSION_ID": session_id,
-            "REDIS_URL": settings.redis_url,
+            "REDIS_URL": container_redis_url,
             "GATEWAY_URL": "http://gateway:8000",
         }
 
         if request.parent_session_id:
             environment["PARENT_SESSION_ID"] = request.parent_session_id
+
+        # Add Claude Code configuration if provided
+        if request.config.claude_config:
+            import json
+            environment["CLAUDE_CONFIG"] = json.dumps(
+                request.config.claude_config.model_dump()
+            )
 
         # Create container
         container_info = await self.container_manager.create_container(

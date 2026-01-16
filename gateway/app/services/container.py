@@ -63,10 +63,11 @@ class ContainerManager:
             },
         }
 
-        # Add Claude config mount if available
+        # Add Claude config mount if available (mount to non-root user's home)
+        # Note: Read-write needed because Claude writes debug logs
         if claude_config_path:
             config["HostConfig"]["Binds"].append(
-                f"{claude_config_path}:/root/.claude:ro"
+                f"{claude_config_path}:/home/claude/.claude:rw"
             )
 
         logger.info(f"Creating container for session {session_id}")

@@ -21,14 +21,23 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY wrapper/ /opt/wrapper/
 RUN pip install --no-cache-dir -r /opt/wrapper/requirements.txt
 
+# Create non-root user for security (Claude won't run with --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash claude
+
 # Create workspace directory
-RUN mkdir -p /workspace
+RUN mkdir -p /workspace && chown claude:claude /workspace
+
+# Create .claude directory for mounted config
+RUN mkdir -p /home/claude/.claude && chown -R claude:claude /home/claude
+
+# Switch to non-root user
+USER claude
 
 # Set working directory
 WORKDIR /workspace
 
 # Pre-authenticated Claude config will be mounted at runtime
-# /root/.claude/ -> mounted volume with OAuth token
+# /home/claude/.claude/ -> mounted volume with OAuth token
 
 # Entry point
 ENTRYPOINT ["python3", "/opt/wrapper/main.py"]

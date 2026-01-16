@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from app.models.claude_config import ClaudeCodeConfig
+
 
 class SessionStatus(str, Enum):
     """Session status enum."""
@@ -41,6 +43,10 @@ class SessionConfig(BaseModel):
     system_prompt: Optional[str] = None
     allowed_tools: List[str] = Field(default_factory=lambda: ["*"])
     mcp_servers: Dict[str, Any] = Field(default_factory=dict)
+    max_turns: int = 100
+
+    # Claude Code specific configuration
+    claude_config: Optional[ClaudeCodeConfig] = None
 
 
 class SessionCreate(BaseModel):

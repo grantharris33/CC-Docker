@@ -23,6 +23,7 @@ class ClaudeRunner:
         self.parser = StreamParser()
         self._process: Optional[asyncio.subprocess.Process] = None
         self._running = False
+        self._claude_session_id: Optional[str] = None  # Claude's internal session ID for resume
 
     async def run_prompt(self, prompt: str, resume: bool = False) -> Dict[str, Any]:
         """
@@ -53,8 +54,8 @@ class ClaudeRunner:
             # Default: bypass permissions
             cmd.append("--dangerously-skip-permissions")
 
-        if resume:
-            cmd.extend(["--resume", self.config.session_id])
+        if resume and self._claude_session_id:
+            cmd.extend(["--resume", self._claude_session_id])
 
         logger.info(f"Running Claude Code: {' '.join(cmd[:6])}...")
 
@@ -83,6 +84,10 @@ class ClaudeRunner:
                     result = message.get("result", "")
                     total_cost = message.get("total_cost_usd", 0)
                     usage = message.get("usage", usage)
+                    # Capture Claude's session ID for multi-turn resume
+                    if message.get("session_id"):
+                        self._claude_session_id = message["session_id"]
+                        logger.debug(f"Captured Claude session ID: {self._claude_session_id}")
 
             # Wait for process to complete
             await self._process.wait()

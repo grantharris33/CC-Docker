@@ -41,6 +41,7 @@ class ChatResult(BaseModel):
     """Complete chat result."""
 
     message_id: str
+    status: MessageStatus = MessageStatus.COMPLETED
     type: str = "result"
     subtype: str = "success"
     result: Optional[str] = None

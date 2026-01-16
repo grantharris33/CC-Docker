@@ -4,7 +4,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/{session_id}/chat", response_model=ChatResponse)
+@router.post("/{session_id}/chat", response_model=Union[ChatResponse, ChatResult])
 async def send_chat_message(
     session_id: str,
     request: ChatRequest,

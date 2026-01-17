@@ -27,6 +27,12 @@ services:
       - CC_SECRET_BROWSER_PROXY=${CC_SECRET_BROWSER_PROXY:-}
       # Default MCP servers
       - CC_DEFAULT_MCP_SERVERS=${CC_DEFAULT_MCP_SERVERS:-cc-docker,filesystem,playwright,sqlite}
+      # Discord Integration
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      - DISCORD_QUESTION_TIMEOUT=${DISCORD_QUESTION_TIMEOUT:-1800}
+      - DISCORD_MAX_RETRIES=${DISCORD_MAX_RETRIES:-3}
+      - DISCORD_UPDATE_INTERVAL=${DISCORD_UPDATE_INTERVAL:-300}
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock

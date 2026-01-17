@@ -79,3 +79,41 @@ class Message(Base):
     session: Mapped["Session"] = relationship("Session", back_populates="messages")
 
     __table_args__ = (Index("idx_messages_session", "session_id"),)
+
+
+class DiscordInteraction(Base):
+    """Discord interaction database model."""
+
+    __tablename__ = "discord_interactions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sessions.id"), nullable=False
+    )
+    discord_thread_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    discord_message_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    interaction_type: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # 'question' or 'notification'
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # 'pending', 'answered', 'timeout', 'failed'
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    priority: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="normal"
+    )  # 'normal' or 'urgent'
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    timeout_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_discord_session", "session_id"),
+        Index("idx_discord_status", "status"),
+        Index("idx_discord_thread", "discord_thread_id"),
+    )

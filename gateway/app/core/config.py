@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # Default MCP servers to enable
     cc_default_mcp_servers: str = "cc-docker,filesystem,playwright,sqlite"
 
+    # Discord Integration
+    discord_bot_token: Optional[str] = None
+    discord_channel_id: Optional[str] = None
+    discord_question_timeout: int = 1800  # 30 minutes per attempt
+    discord_max_retries: int = 3  # Total attempts before failing
+    discord_update_interval: int = 300  # Update countdown every 5 minutes
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

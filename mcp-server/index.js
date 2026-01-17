@@ -282,6 +282,71 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "notify_user",
+    description:
+      "Send a notification to the user via Discord. This is fire-and-forget - the message is posted and this call returns immediately. Use this when you want to inform the user about progress, completion, or important events without waiting for a response.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "The notification message to send (max 2000 characters)",
+        },
+        priority: {
+          type: "string",
+          enum: ["normal", "urgent"],
+          description: "Priority level: 'normal' or 'urgent' (default: normal)",
+          default: "normal",
+        },
+        summary: {
+          type: "string",
+          description: "Optional summary or additional details (max 4000 characters)",
+        },
+      },
+      required: ["message"],
+    },
+  },
+  {
+    name: "ask_user",
+    description:
+      "Ask the user a question via Discord and BLOCK waiting for their response. This will post the question in Discord and wait up to the timeout period for the user to reply. The question will retry multiple times if no response is received. Use this when you need user input, clarification, or approval before proceeding.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: {
+          type: "string",
+          description: "The question to ask the user (max 2000 characters)",
+        },
+        timeout_seconds: {
+          type: "number",
+          description: "Timeout in seconds per attempt (default: 1800 = 30 minutes)",
+          default: 1800,
+          minimum: 60,
+          maximum: 7200,
+        },
+        max_attempts: {
+          type: "number",
+          description: "Maximum retry attempts (default: 3)",
+          default: 3,
+          minimum: 1,
+          maximum: 5,
+        },
+        priority: {
+          type: "string",
+          enum: ["normal", "urgent"],
+          description: "Priority level: 'normal' or 'urgent' (default: normal)",
+          default: "normal",
+        },
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of quick reply options",
+        },
+      },
+      required: ["question"],
+    },
+  },
 ];
 
 // Tool implementations
@@ -707,6 +772,82 @@ async function getParentContext(args) {
   }
 }
 
+// Discord notification tool
+async function notifyUser(args) {
+  const { message, priority = "normal", summary } = args;
+
+  try {
+    const result = await gatewayRequest(
+      "/api/v1/discord/notify",
+      "POST",
+      {
+        session_id: SESSION_ID,
+        message,
+        priority,
+        summary,
+      }
+    );
+
+    return {
+      success: true,
+      interaction_id: result.interaction_id,
+      message: "Notification sent to user via Discord",
+    };
+  } catch (error) {
+    return {
+      error: true,
+      message: `Failed to send notification: ${error.message}`,
+    };
+  }
+}
+
+// Discord ask question tool
+async function askUser(args) {
+  const {
+    question,
+    timeout_seconds = 1800,
+    max_attempts = 3,
+    priority = "normal",
+    options,
+  } = args;
+
+  try {
+    const result = await gatewayRequest(
+      "/api/v1/discord/ask",
+      "POST",
+      {
+        session_id: SESSION_ID,
+        question,
+        timeout_seconds,
+        max_attempts,
+        priority,
+        options,
+      }
+    );
+
+    if (result.timed_out) {
+      return {
+        error: true,
+        timed_out: true,
+        message: `Question timed out after ${max_attempts} attempts. User did not respond within the ${timeout_seconds} second timeout period for each attempt.`,
+        interaction_id: result.interaction_id,
+      };
+    }
+
+    return {
+      success: true,
+      response: result.response,
+      interaction_id: result.interaction_id,
+      message: `User responded: ${result.response}`,
+    };
+  } catch (error) {
+    return {
+      error: true,
+      message: `Failed to ask question: ${error.message}`,
+    };
+  }
+}
+
 // Tool handler
 async function handleTool(name, args) {
   switch (name) {
@@ -728,6 +869,10 @@ async function handleTool(name, args) {
       return await getChildWorkspacePath(args);
     case "get_parent_context":
       return await getParentContext(args);
+    case "notify_user":
+      return await notifyUser(args);
+    case "ask_user":
+      return await askUser(args);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

@@ -4,18 +4,20 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import redis.asyncio as redis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from prometheus_client import make_asgi_app
 
-from app.api.routes import chat, health, sessions, spawn
+from app.api.routes import chat, discord, health, sessions, spawn
 from app.api.websocket import stream
 from app.core.config import get_settings
 from app.core.security import create_token
 from app.db.database import init_db
 from app.services.container import container_manager
+from app.services.discord import start_discord_bot, stop_discord_bot
 
 settings = get_settings()
 
@@ -37,11 +39,18 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
+    # Start Discord bot
+    redis_client = redis.from_url(settings.redis_url, decode_responses=False)
+    await start_discord_bot(redis_client)
+    logger.info("Discord bot initialized")
+
     yield
 
     # Shutdown
     logger.info("Shutting down CC-Docker Gateway...")
+    await stop_discord_bot()
     await container_manager.close()
+    await redis_client.aclose()
 
 
 # Create FastAPI app
@@ -80,6 +89,9 @@ app.include_router(
 )
 app.include_router(
     stream.router, prefix="/api/v1/sessions", tags=["WebSocket"]
+)
+app.include_router(
+    discord.router, prefix="/api/v1/discord", tags=["Discord"]
 )
 
 

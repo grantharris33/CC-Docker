@@ -32,5 +32,7 @@ async def get_minio_client():
         yield client
 
 
-# Re-export get_db for convenience
-__all__ = ["get_db", "get_redis", "get_minio_client"]
+from app.core.security import get_current_user
+
+# Re-export for convenience
+__all__ = ["get_db", "get_redis", "get_minio_client", "get_current_user"]

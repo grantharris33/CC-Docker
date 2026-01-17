@@ -2,10 +2,13 @@
 """Claude Code wrapper entry point."""
 
 import asyncio
+import json
 import logging
 import signal
 import sys
 from typing import Optional
+
+import redis.asyncio as redis
 
 from claude_runner import InteractiveRunner
 from config import WrapperConfig
@@ -21,6 +24,91 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class InterruptListener:
+    """Listens for interrupt messages from parent sessions via Redis pub/sub."""
+
+    def __init__(self, redis_url: str, session_id: str):
+        self.redis_url = redis_url
+        self.session_id = session_id
+        self._client: Optional[redis.Redis] = None
+        self._pubsub = None
+        self._task: Optional[asyncio.Task] = None
+        self._callbacks = []
+
+    async def start(self) -> None:
+        """Start listening for interrupts."""
+        self._client = redis.from_url(self.redis_url)
+        self._pubsub = self._client.pubsub()
+
+        # Subscribe to interrupt channel
+        await self._pubsub.subscribe(f"session:{self.session_id}:interrupt")
+
+        # Start listener task
+        self._task = asyncio.create_task(self._listen())
+        logger.info(f"Interrupt listener started for session {self.session_id}")
+
+        # Also check for any queued interrupts
+        await self._process_queued_interrupts()
+
+    async def stop(self) -> None:
+        """Stop listening for interrupts."""
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+        if self._pubsub:
+            await self._pubsub.unsubscribe()
+            await self._pubsub.close()
+
+        if self._client:
+            await self._client.close()
+
+    def on_interrupt(self, callback) -> None:
+        """Register a callback for when an interrupt is received."""
+        self._callbacks.append(callback)
+
+    async def _listen(self) -> None:
+        """Listen for interrupt messages."""
+        try:
+            async for message in self._pubsub.listen():
+                if message["type"] == "message":
+                    try:
+                        data = json.loads(message["data"])
+                        logger.info(f"Received interrupt: {data}")
+                        await self._handle_interrupt(data)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid interrupt message: {message['data']}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Interrupt listener error: {e}")
+
+    async def _process_queued_interrupts(self) -> None:
+        """Process any interrupts that were queued before we started listening."""
+        queue_key = f"session:{self.session_id}:interrupt_queue"
+        while True:
+            data = await self._client.lpop(queue_key)
+            if not data:
+                break
+            try:
+                interrupt = json.loads(data)
+                logger.info(f"Processing queued interrupt: {interrupt}")
+                await self._handle_interrupt(interrupt)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid queued interrupt: {data}")
+
+    async def _handle_interrupt(self, data: dict) -> None:
+        """Handle an interrupt message."""
+        for callback in self._callbacks:
+            try:
+                await callback(data)
+            except Exception as e:
+                logger.error(f"Interrupt callback error: {e}")
+
+
 class WrapperApp:
     """Main wrapper application."""
 
@@ -29,6 +117,7 @@ class WrapperApp:
         self.publisher: Optional[RedisPublisher] = None
         self.runner: Optional[InteractiveRunner] = None
         self.health: Optional[HealthReporter] = None
+        self.interrupt_listener: Optional[InterruptListener] = None
         self._shutdown_event = asyncio.Event()
 
     async def start(self) -> None:
@@ -55,6 +144,14 @@ class WrapperApp:
             )
             await self.health.start()
 
+            # Start interrupt listener (for parent -> child communication)
+            self.interrupt_listener = InterruptListener(
+                self.config.redis_url,
+                self.config.session_id,
+            )
+            self.interrupt_listener.on_interrupt(self._handle_interrupt)
+            await self.interrupt_listener.start()
+
             # Start interactive runner
             self.runner = InteractiveRunner(self.config, self.publisher)
             await self.runner.run()
@@ -68,12 +165,38 @@ class WrapperApp:
         finally:
             await self.cleanup()
 
+    async def _handle_interrupt(self, data: dict) -> None:
+        """Handle an interrupt message from parent or external source."""
+        interrupt_type = data.get("type", "redirect")
+        message = data.get("message", "")
+        priority = data.get("priority", "normal")
+
+        logger.info(f"Processing interrupt: type={interrupt_type}, priority={priority}")
+
+        if interrupt_type == "stop":
+            # Stop the session
+            await self.shutdown()
+        elif interrupt_type == "redirect":
+            # Inject a new prompt to redirect the current work
+            if message and self.runner:
+                # Format the interrupt as a high-priority message
+                interrupt_prompt = f"[INTERRUPT FROM PARENT - {priority.upper()} PRIORITY]\n\n{message}"
+                await self.runner.inject_prompt(interrupt_prompt)
+        elif interrupt_type == "pause":
+            # Pause is not fully implemented yet, log and continue
+            logger.warning("Pause interrupt not yet implemented")
+        else:
+            logger.warning(f"Unknown interrupt type: {interrupt_type}")
+
     async def cleanup(self) -> None:
         """Clean up resources."""
         logger.info("Cleaning up...")
 
         if self.runner:
             await self.runner.stop()
+
+        if self.interrupt_listener:
+            await self.interrupt_listener.stop()
 
         if self.health:
             await self.health.stop()

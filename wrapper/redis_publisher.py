@@ -158,3 +158,23 @@ class RedisPublisher:
         pubsub = self._client.pubsub()
         await pubsub.subscribe(f"session:{self.session_id}:control")
         return pubsub
+
+    async def inject_input(self, input_data: Dict[str, Any], high_priority: bool = True) -> None:
+        """Inject input into the session queue.
+
+        Args:
+            input_data: The input data to inject (e.g., {"prompt": "..."})
+            high_priority: If True, push to front of queue (processed next).
+                          If False, push to back of queue (processed in order).
+        """
+        if not self._client:
+            raise RuntimeError("Not connected to Redis")
+
+        queue_key = f"session:{self.session_id}:input"
+
+        if high_priority:
+            # Push to front - will be processed next
+            await self._client.lpush(queue_key, json.dumps(input_data))
+        else:
+            # Push to back - processed in order
+            await self._client.rpush(queue_key, json.dumps(input_data))

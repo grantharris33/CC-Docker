@@ -1,5 +1,6 @@
 """Session management service."""
 
+import json
 import logging
 import os
 import tempfile
@@ -46,9 +47,16 @@ class SessionService:
         """Create a new Claude Code session."""
         session_id = str(uuid.uuid4())
 
-        # Create workspace directory
+        # Get parent workspace path if this is a child session
+        parent_workspace_path = None
+        if request.parent_session_id:
+            parent_workspace_path = await self._get_parent_workspace_path(
+                request.parent_session_id
+            )
+
+        # Create workspace directory (possibly under parent's workspace)
         workspace_path = self._create_workspace(
-            session_id, request.workspace
+            session_id, request.workspace, parent_workspace_path
         )
 
         # Build environment variables for container
@@ -69,18 +77,18 @@ class SessionService:
 
         # Add Claude Code configuration if provided
         if request.config.claude_config:
-            import json
             environment["CLAUDE_CONFIG"] = json.dumps(
                 request.config.claude_config.model_dump()
             )
 
-        # Create container
+        # Create container with parent workspace for mounting children directory
         container_info = await self.container_manager.create_container(
             session_id=session_id,
             workspace_path=workspace_path,
             environment=environment,
             claude_config_path=settings.claude_config_path,
             claude_credentials_path=settings.claude_credentials_path,
+            parent_workspace_path=parent_workspace_path,
         )
 
         # Create database record
@@ -96,13 +104,14 @@ class SessionService:
         self.db.add(db_session)
         await self.db.commit()
 
-        # Store session state in Redis
+        # Store session state in Redis (including workspace path for child access)
         await self.redis.hset(
             f"session:{session_id}:state",
             mapping={
                 "status": SessionStatus.STARTING,
                 "container_id": container_info.container_id,
                 "last_heartbeat": datetime.utcnow().isoformat(),
+                "workspace_path": workspace_path,
             },
         )
 
@@ -252,15 +261,38 @@ class SessionService:
         # Update Redis
         await self.redis.hset(f"session:{session_id}:state", "status", status.value)
 
-    def _create_workspace(
-        self, session_id: str, workspace: WorkspaceConfig
-    ) -> str:
-        """Create workspace directory for session."""
-        base_path = os.path.join(tempfile.gettempdir(), "cc-docker-workspaces")
-        os.makedirs(base_path, exist_ok=True)
+    async def _get_parent_workspace_path(self, parent_session_id: str) -> Optional[str]:
+        """Get the workspace path of a parent session from Redis."""
+        state = await self.redis.hgetall(f"session:{parent_session_id}:state")
+        if state and "workspace_path" in state:
+            return state["workspace_path"]
+        return None
 
-        workspace_path = os.path.join(base_path, session_id)
-        os.makedirs(workspace_path, exist_ok=True)
+    def _create_workspace(
+        self, session_id: str, workspace: WorkspaceConfig, parent_workspace_path: Optional[str] = None
+    ) -> str:
+        """Create workspace directory for session.
+
+        If parent_workspace_path is provided, creates the child workspace under
+        the parent's workspace at /children/<session_id>/ so the parent can
+        access child work products.
+        """
+        if parent_workspace_path:
+            # Create child workspace under parent's workspace
+            # This allows parent to access child's files at /workspace/children/<child_id>/
+            children_dir = os.path.join(parent_workspace_path, "children")
+            os.makedirs(children_dir, exist_ok=True)
+
+            workspace_path = os.path.join(children_dir, session_id)
+            os.makedirs(workspace_path, exist_ok=True)
+            logger.info(f"Created child workspace at {workspace_path} (under parent {parent_workspace_path})")
+        else:
+            # Root session - create in standard location
+            base_path = os.path.join(tempfile.gettempdir(), "cc-docker-workspaces")
+            os.makedirs(base_path, exist_ok=True)
+
+            workspace_path = os.path.join(base_path, session_id)
+            os.makedirs(workspace_path, exist_ok=True)
 
         return workspace_path
 

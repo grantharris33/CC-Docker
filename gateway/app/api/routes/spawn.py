@@ -1,7 +1,9 @@
 """Child instance spawning endpoints."""
 
+import json
 import logging
 import uuid
+from datetime import datetime
 from typing import Optional
 
 import redis.asyncio as redis
@@ -93,6 +95,7 @@ async def spawn_child_session(
     request: SpawnRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis),
     session_service: SessionService = Depends(get_session_service),
 ):
     """
@@ -169,6 +172,14 @@ async def spawn_child_session(
             user.user_id,
         )
 
+        # Send the initial prompt to the child session
+        if request.prompt:
+            await redis_client.rpush(
+                f"session:{child_session.session_id}:input",
+                json.dumps({"prompt": request.prompt})
+            )
+            logger.info(f"Queued initial prompt for child session {child_session.session_id}")
+
         return SpawnResponse(
             child_session_id=child_session.session_id,
             status="starting",
@@ -219,4 +230,119 @@ async def list_child_sessions(
             }
             for child in children
         ],
+    }
+
+
+@router.post("/{session_id}/interrupt")
+async def interrupt_session(
+    session_id: str,
+    request: dict,
+    user: User = Depends(get_current_user),
+    redis_client: redis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Send an interrupt/redirect message to a session.
+
+    This allows a parent to interrupt a child's current work and redirect it
+    to a different task or add additional instructions mid-execution.
+
+    The interrupt is delivered via Redis and processed by the wrapper's
+    stop-hook mechanism.
+    """
+    import json
+
+    # Verify session exists
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} not found",
+        )
+
+    # Get interrupt type and message
+    interrupt_type = request.get("type", "redirect")  # redirect, stop, pause
+    message = request.get("message", "")
+    priority = request.get("priority", "normal")  # normal, high, critical
+
+    # Publish interrupt to Redis channel
+    interrupt_data = {
+        "type": interrupt_type,
+        "message": message,
+        "priority": priority,
+        "timestamp": datetime.utcnow().isoformat(),
+        "from_session_id": user.user_id,
+    }
+
+    # Use Redis pub/sub for real-time interrupt delivery
+    await redis_client.publish(
+        f"session:{session_id}:interrupt",
+        json.dumps(interrupt_data)
+    )
+
+    # Also queue the interrupt in case the session is not actively listening
+    await redis_client.rpush(
+        f"session:{session_id}:interrupt_queue",
+        json.dumps(interrupt_data)
+    )
+
+    logger.info(f"Sent interrupt to session {session_id}: type={interrupt_type}")
+
+    return {
+        "status": "sent",
+        "session_id": session_id,
+        "interrupt_type": interrupt_type,
+        "timestamp": interrupt_data["timestamp"],
+    }
+
+
+@router.get("/{session_id}/workspace")
+async def get_session_workspace_info(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    redis_client: redis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get workspace information for a session.
+
+    Returns the workspace path and any child workspaces.
+    """
+    # Verify session exists
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} not found",
+        )
+
+    # Get workspace info from Redis
+    state = await redis_client.hgetall(f"session:{session_id}:state")
+    workspace_path = state.get("workspace_path", "")
+
+    # Get children workspaces
+    result = await db.execute(
+        select(Session).where(Session.parent_session_id == session_id)
+    )
+    children = result.scalars().all()
+
+    children_workspaces = []
+    for child in children:
+        child_state = await redis_client.hgetall(f"session:{child.id}:state")
+        children_workspaces.append({
+            "session_id": child.id,
+            "workspace_path": child_state.get("workspace_path", ""),
+            "status": child.status,
+        })
+
+    return {
+        "session_id": session_id,
+        "workspace_path": workspace_path,
+        "container_workspace": "/workspace",
+        "children_workspace": "/workspace/children" if children_workspaces else None,
+        "children": children_workspaces,
     }

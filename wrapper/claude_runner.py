@@ -222,3 +222,12 @@ class InteractiveRunner:
         """Stop the interactive session."""
         self._shutdown = True
         await self.runner.stop()
+
+    async def inject_prompt(self, prompt: str) -> None:
+        """Inject a prompt into the session queue.
+
+        This allows external sources (like parent session interrupts) to
+        send messages that will be processed after the current turn completes.
+        """
+        logger.info(f"Injecting prompt into session queue: {prompt[:50]}...")
+        await self.publisher.inject_input({"prompt": prompt})

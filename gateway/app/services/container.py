@@ -39,8 +39,20 @@ class ContainerManager:
         environment: Dict[str, str],
         claude_config_path: Optional[str] = None,
         claude_credentials_path: Optional[str] = None,
+        parent_workspace_path: Optional[str] = None,
     ) -> ContainerInfo:
-        """Create a new container for a Claude Code session."""
+        """Create a new container for a Claude Code session.
+
+        Args:
+            session_id: Unique session identifier
+            workspace_path: Path to the workspace directory
+            environment: Environment variables for the container
+            claude_config_path: Path to Claude config directory
+            claude_credentials_path: Path to Claude credentials file
+            parent_workspace_path: If this is a child, the parent's workspace path.
+                                   The child's workspace will be mounted so parent
+                                   can access it at /workspace/children/<session_id>/
+        """
         docker = await self._get_docker()
 
         # Build container configuration
@@ -50,6 +62,7 @@ class ContainerManager:
             "Labels": {
                 "cc-docker.session_id": session_id,
                 "cc-docker.created_at": datetime.utcnow().isoformat(),
+                "cc-docker.parent_workspace": parent_workspace_path or "",
             },
             "HostConfig": {
                 "Binds": [

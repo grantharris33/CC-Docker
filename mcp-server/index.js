@@ -221,6 +221,54 @@ const TOOLS = [
     },
   },
   {
+    name: "interrupt_child",
+    description:
+      "Send an interrupt/redirect message to a child session. Use this to change what the child is working on mid-execution.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        child_session_id: {
+          type: "string",
+          description: "ID of the child session to interrupt",
+        },
+        message: {
+          type: "string",
+          description:
+            "The redirect message to send to the child. This will be injected as a high-priority prompt.",
+        },
+        interrupt_type: {
+          type: "string",
+          enum: ["redirect", "stop", "pause"],
+          description:
+            "Type of interrupt: 'redirect' (change task), 'stop' (end session), 'pause' (pause execution)",
+          default: "redirect",
+        },
+        priority: {
+          type: "string",
+          enum: ["normal", "high", "critical"],
+          description: "Priority level of the interrupt",
+          default: "high",
+        },
+      },
+      required: ["child_session_id", "message"],
+    },
+  },
+  {
+    name: "get_child_workspace_path",
+    description:
+      "Get the path to a child's workspace. The child workspace is mounted under this session's workspace at /workspace/children/<child_session_id>/",
+    inputSchema: {
+      type: "object",
+      properties: {
+        child_session_id: {
+          type: "string",
+          description: "ID of the child session",
+        },
+      },
+      required: ["child_session_id"],
+    },
+  },
+  {
     name: "get_parent_context",
     description:
       "Get context or data from the parent session (only available for child sessions).",
@@ -539,6 +587,88 @@ async function stopChild(args) {
   }
 }
 
+async function interruptChild(args) {
+  const {
+    child_session_id,
+    message,
+    interrupt_type = "redirect",
+    priority = "high",
+  } = args;
+
+  try {
+    const redis = await getRedis();
+
+    // Verify child exists and belongs to this parent
+    const childInfo = await redis.hget(
+      `session:${SESSION_ID}:children`,
+      child_session_id
+    );
+    if (!childInfo) {
+      return {
+        error: true,
+        message: `Child session ${child_session_id} not found or does not belong to this session`,
+      };
+    }
+
+    // Call gateway to send interrupt
+    const result = await gatewayRequest(
+      `/api/v1/sessions/${child_session_id}/interrupt`,
+      "POST",
+      {
+        type: interrupt_type,
+        message: message,
+        priority: priority,
+      }
+    );
+
+    return {
+      success: true,
+      interrupt_type: interrupt_type,
+      timestamp: result.timestamp,
+      message: `Interrupt sent to child session ${child_session_id}. The child will process this message after completing its current turn.`,
+    };
+  } catch (error) {
+    return {
+      error: true,
+      message: `Failed to interrupt child: ${error.message}`,
+    };
+  }
+}
+
+async function getChildWorkspacePath(args) {
+  const { child_session_id } = args;
+
+  try {
+    const redis = await getRedis();
+
+    // Verify child exists and belongs to this parent
+    const childInfo = await redis.hget(
+      `session:${SESSION_ID}:children`,
+      child_session_id
+    );
+    if (!childInfo) {
+      return {
+        error: true,
+        message: `Child session ${child_session_id} not found or does not belong to this session`,
+      };
+    }
+
+    // Child workspace is mounted under parent's workspace
+    const childWorkspacePath = `/workspace/children/${child_session_id}`;
+
+    return {
+      child_session_id: child_session_id,
+      workspace_path: childWorkspacePath,
+      description: `The child's workspace is accessible at ${childWorkspacePath}. Any files created by the child will appear here.`,
+    };
+  } catch (error) {
+    return {
+      error: true,
+      message: `Failed to get child workspace path: ${error.message}`,
+    };
+  }
+}
+
 async function getParentContext(args) {
   const { key } = args || {};
 
@@ -592,6 +722,10 @@ async function handleTool(name, args) {
       return await listChildren(args);
     case "stop_child":
       return await stopChild(args);
+    case "interrupt_child":
+      return await interruptChild(args);
+    case "get_child_workspace_path":
+      return await getChildWorkspacePath(args);
     case "get_parent_context":
       return await getParentContext(args);
     default:

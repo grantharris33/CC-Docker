@@ -69,21 +69,26 @@ class ClaudeRunner:
         )
 
         result = None
-        total_cost = 0.0
         usage = {"input_tokens": 0, "output_tokens": 0}
 
         try:
             # Stream output
             async for message in self._stream_output():
-                # Publish to Redis
-                formatted = format_for_client(message)
-                await self.publisher.publish_output(formatted)
+                msg_type = message.get("type")
+
+                # Don't forward result messages - they're sent via publish_result()
+                if msg_type != "result":
+                    formatted = format_for_client(message)
+                    await self.publisher.publish_output(formatted)
 
                 # Track result
-                if message.get("type") == "result":
+                if msg_type == "result":
                     result = message.get("result", "")
-                    total_cost = message.get("total_cost_usd", 0)
-                    usage = message.get("usage", usage)
+                    raw_usage = message.get("usage", {})
+                    usage = {
+                        "input_tokens": raw_usage.get("input_tokens", raw_usage.get("inputTokens", 0)),
+                        "output_tokens": raw_usage.get("output_tokens", raw_usage.get("outputTokens", 0)),
+                    }
                     # Capture Claude's session ID for multi-turn resume
                     if message.get("session_id"):
                         self._claude_session_id = message["session_id"]
@@ -104,14 +109,12 @@ class ClaudeRunner:
         await self.publisher.publish_result(
             result=result or "",
             subtype="success" if self._process.returncode == 0 else "error",
-            cost_usd=total_cost,
             usage=usage,
             duration_ms=duration_ms,
         )
 
         return {
             "result": result,
-            "cost_usd": total_cost,
             "usage": usage,
             "duration_ms": duration_ms,
             "exit_code": self._process.returncode,

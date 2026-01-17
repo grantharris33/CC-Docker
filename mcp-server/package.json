@@ -1,0 +1,23 @@
+{
+  "name": "cc-docker-mcp",
+  "version": "1.0.0",
+  "description": "CC-Docker MCP Server for inter-session communication",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.js"
+  },
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "docker"
+  ],
+  "author": "CC-Docker",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ioredis": "^5.3.2",
+    "node-fetch": "^3.3.2"
+  }
+}

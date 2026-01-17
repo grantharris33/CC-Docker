@@ -4,14 +4,18 @@ from datetime import datetime
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.core.config import get_settings
 
 settings = get_settings()
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
+
+# Internal service authentication header
+INTERNAL_SERVICE_HEADER = "X-Internal-Service"
+INTERNAL_SESSION_HEADER = "X-Session-ID"
 
 
 class TokenPayload(BaseModel):
@@ -61,9 +65,28 @@ def create_token(user_id: str, expires_in: int = 3600) -> str:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> User:
-    """Dependency to get the current authenticated user."""
+    """Dependency to get the current authenticated user.
+
+    Supports both JWT tokens and internal service authentication.
+    """
+    # Check for internal service authentication (from MCP servers)
+    internal_service = request.headers.get(INTERNAL_SERVICE_HEADER)
+    internal_session = request.headers.get(INTERNAL_SESSION_HEADER)
+
+    if internal_service == "cc-docker-mcp" and internal_session:
+        # Internal service call from container - use session ID as user
+        return User(user_id=f"session:{internal_session}")
+
+    # Otherwise, require JWT
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
     payload = decode_token(credentials.credentials)
 
     # Check expiration
@@ -77,11 +100,17 @@ async def get_current_user(
 
 
 async def get_optional_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(
-        HTTPBearer(auto_error=False)
-    ),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> Optional[User]:
     """Dependency to optionally get the current user."""
+    # Check for internal service authentication
+    internal_service = request.headers.get(INTERNAL_SERVICE_HEADER)
+    internal_session = request.headers.get(INTERNAL_SESSION_HEADER)
+
+    if internal_service == "cc-docker-mcp" and internal_session:
+        return User(user_id=f"session:{internal_session}")
+
     if credentials is None:
         return None
     try:

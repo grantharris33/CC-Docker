@@ -46,7 +46,6 @@ class ChatResult(BaseModel):
     subtype: str = "success"
     result: Optional[str] = None
     duration_ms: Optional[int] = None
-    total_cost_usd: float = 0.0
     usage: UsageInfo = Field(default_factory=UsageInfo)
 
 
@@ -91,7 +90,6 @@ class WSServerMessage(BaseModel):
     input: Optional[Dict[str, Any]] = None
     subtype: Optional[str] = None
     result: Optional[str] = None
-    total_cost_usd: Optional[float] = None
     usage: Optional[UsageInfo] = None
     event: Optional[str] = None
     data: Optional[Dict[str, Any]] = None

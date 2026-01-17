@@ -10,6 +10,9 @@ import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of output messages to buffer for child streaming
+MAX_OUTPUT_BUFFER = 1000
+
 
 class RedisPublisher:
     """Publishes Claude Code output to Redis pub/sub channels."""
@@ -42,16 +45,27 @@ class RedisPublisher:
             "data": message,
         }
 
+        payload_json = json.dumps(payload)
+
+        # Publish to pub/sub channel for real-time streaming
         await self._client.publish(
             f"session:{self.session_id}:output",
-            json.dumps(payload),
+            payload_json,
         )
+
+        # Also buffer output for child session streaming retrieval
+        # This allows parent sessions to get_child_output even if they missed the pub/sub
+        buffer_key = f"session:{self.session_id}:output_buffer"
+        await self._client.rpush(buffer_key, payload_json)
+        # Trim buffer to max size
+        await self._client.ltrim(buffer_key, -MAX_OUTPUT_BUFFER, -1)
+        # Set expiry on buffer (1 hour)
+        await self._client.expire(buffer_key, 3600)
 
     async def publish_result(
         self,
         result: str,
         subtype: str = "success",
-        cost_usd: float = 0,
         usage: Optional[Dict] = None,
         duration_ms: Optional[int] = None,
     ) -> None:
@@ -66,16 +80,31 @@ class RedisPublisher:
             "data": {
                 "subtype": subtype,
                 "result": result,
-                "total_cost_usd": cost_usd,
                 "usage": usage or {},
                 "duration_ms": duration_ms,
             },
         }
 
+        payload_json = json.dumps(payload)
+
         await self._client.publish(
             f"session:{self.session_id}:output",
-            json.dumps(payload),
+            payload_json,
         )
+
+        # Store result for child session retrieval
+        result_key = f"session:{self.session_id}:result"
+        await self._client.set(
+            result_key,
+            json.dumps({
+                "result": result,
+                "usage": usage or {},
+                "duration_ms": duration_ms,
+                "subtype": subtype,
+            }),
+        )
+        # Set expiry (1 hour)
+        await self._client.expire(result_key, 3600)
 
     async def publish_error(self, error: str) -> None:
         """Publish error message to session channel."""

@@ -45,6 +45,18 @@ class SessionConfig(BaseModel):
     mcp_servers: Dict[str, Any] = Field(default_factory=dict)
     max_turns: int = 100
 
+    # Secrets to inject into container
+    secrets: List[str] = Field(
+        default_factory=list,
+        description="Secrets to inject (e.g., ['GITHUB_TOKEN', 'POSTGRES_URL'])"
+    )
+
+    # Skills to enable
+    skills: List[str] = Field(
+        default_factory=lambda: ["delegate-task", "coordinate-children", "child-status"],
+        description="Skills to enable in the session"
+    )
+
     # Claude Code specific configuration
     claude_config: Optional[ClaudeCodeConfig] = None
 
@@ -77,7 +89,6 @@ class SessionDetail(BaseModel):
     last_activity: Optional[datetime] = None
     parent_session_id: Optional[str] = None
     child_session_ids: List[str] = Field(default_factory=list)
-    total_cost_usd: float = 0.0
     total_turns: int = 0
 
 

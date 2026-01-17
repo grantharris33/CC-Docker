@@ -133,7 +133,6 @@ async def _wait_for_result(
                         subtype=data.get("subtype", "success"),
                         result=data.get("result"),
                         duration_ms=data.get("duration_ms"),
-                        total_cost_usd=data.get("total_cost_usd", 0),
                         usage=UsageInfo(
                             input_tokens=data.get("usage", {}).get("input_tokens", 0),
                             output_tokens=data.get("usage", {}).get("output_tokens", 0),
@@ -204,7 +203,6 @@ async def get_message_status(
                 subtype="success",
                 result=message.content,
                 duration_ms=message.duration_ms,
-                total_cost_usd=message.cost_usd,
                 usage=UsageInfo(
                     input_tokens=message.tokens_in,
                     output_tokens=message.tokens_out,

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.dependencies import get_db, get_redis
 from app.core.security import decode_token
+from app.db.database import get_db_context
 from app.db.models import Session
 from app.models.message import WSMessageType
 from app.models.session import SessionStatus
@@ -119,7 +120,7 @@ async def websocket_stream(
 
     try:
         # Verify session exists
-        async with get_db_session() as db:
+        async with get_db_context() as db:
             result = await db.execute(select(Session).where(Session.id == session_id))
             session = result.scalar_one_or_none()
 
@@ -230,7 +231,6 @@ async def forward_session_output(
                         "type": WSMessageType.RESULT,
                         "subtype": data.get("subtype", "success"),
                         "result": data.get("result"),
-                        "total_cost_usd": data.get("total_cost_usd"),
                         "usage": data.get("usage"),
                     }
                 )
@@ -260,8 +260,3 @@ async def forward_session_output(
         raise
 
 
-async def get_db_session():
-    """Get database session context manager."""
-    from app.db.database import get_db_context
-
-    return get_db_context()

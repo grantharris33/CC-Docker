@@ -120,16 +120,37 @@ def format_for_client(message: Dict[str, Any]) -> Dict[str, Any]:
             "input": message.get("input", {}),
         }
 
+    elif msg_type == "tool_result":
+        return {
+            "type": "tool_result",
+            "tool": message.get("tool", message.get("name")),
+            "result": message.get("result", message.get("output", "")),
+        }
+
+    elif msg_type == "system":
+        return {
+            "type": "system",
+            "event": message.get("subtype", message.get("event", "system")),
+            "data": message.get("data", message),
+        }
+
     elif msg_type == "result":
+        usage = message.get("usage", {})
         return {
             "type": "result",
             "subtype": message.get("subtype", "success"),
             "result": message.get("result"),
-            "total_cost_usd": message.get("total_cost_usd", 0),
-            "usage": message.get("usage", {}),
+            "usage": {
+                "input_tokens": usage.get("input_tokens", usage.get("inputTokens", 0)),
+                "output_tokens": usage.get("output_tokens", usage.get("outputTokens", 0)),
+            },
             "duration_ms": message.get("duration_ms"),
+            "session_id": message.get("session_id"),
         }
 
     else:
-        # Pass through other message types
-        return message
+        # Pass through other message types with type info
+        return {
+            "type": msg_type,
+            "data": message,
+        }

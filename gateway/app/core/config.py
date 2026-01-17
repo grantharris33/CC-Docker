@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     claude_config_path: Optional[str] = None
     claude_credentials_path: Optional[str] = None
 
+    # Secrets for MCP servers (injected into containers)
+    cc_secret_github_token: Optional[str] = None
+    cc_secret_postgres_url: Optional[str] = None
+    cc_secret_sqlite_db_path: Optional[str] = None
+    cc_secret_browser_proxy: Optional[str] = None
+
+    # Default MCP servers to enable
+    cc_default_mcp_servers: str = "cc-docker,filesystem,playwright,sqlite"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -2,14 +2,18 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from prometheus_client import make_asgi_app
 
 from app.api.routes import chat, health, sessions, spawn
 from app.api.websocket import stream
 from app.core.config import get_settings
+from app.core.security import create_token
 from app.db.database import init_db
 from app.services.container import container_manager
 
@@ -100,3 +104,25 @@ async def api_info():
             "metrics": "/metrics",
         },
     }
+
+
+# Serve test UI
+STATIC_DIR = Path(__file__).parent.parent / "static"
+
+
+@app.get("/test")
+async def test_ui():
+    """Serve the test UI."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/v1/test-token")
+async def get_test_token(user_id: str = "test-user"):
+    """Generate a test JWT token for the test UI. DO NOT use in production."""
+    token = create_token(user_id, expires_in=86400)  # 24 hours
+    return {"token": token, "user_id": user_id}
+
+
+# Mount static files (for any additional assets)
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

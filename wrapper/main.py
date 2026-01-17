@@ -9,6 +9,7 @@ from typing import Optional
 
 from claude_runner import InteractiveRunner
 from config import WrapperConfig
+from config_generator import ConfigGenerator
 from health import HealthReporter
 from redis_publisher import RedisPublisher
 
@@ -36,6 +37,9 @@ class WrapperApp:
             # Load configuration
             self.config = WrapperConfig.from_env()
             logger.info(f"Starting wrapper for session {self.config.session_id}")
+
+            # Generate Claude Code configuration files
+            self._generate_config_files()
 
             # Initialize Redis publisher
             self.publisher = RedisPublisher(
@@ -84,6 +88,30 @@ class WrapperApp:
         self._shutdown_event.set()
         if self.runner:
             await self.runner.stop()
+
+    def _generate_config_files(self) -> None:
+        """Generate Claude Code configuration files at startup."""
+        try:
+            # Extract MCP servers from claude_config if available
+            mcp_servers = {}
+            if self.config.claude_config and self.config.claude_config.mcp_servers:
+                mcp_servers = self.config.claude_config.mcp_servers
+
+            generator = ConfigGenerator(
+                session_id=self.config.session_id,
+                workspace_path=self.config.workspace_path,
+                redis_url=self.config.redis_url,
+                gateway_url=self.config.gateway_url,
+                parent_session_id=self.config.parent_session_id,
+                container_role="child" if self.config.parent_session_id else "root",
+                mcp_servers=mcp_servers,
+            )
+            generator.generate_all()
+            logger.info("Configuration files generated successfully")
+        except Exception as e:
+            logger.error(f"Failed to generate configuration files: {e}")
+            # Don't fail startup - Claude Code can still work without these files
+            pass
 
 
 async def main() -> int:

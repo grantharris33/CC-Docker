@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CC-Docker Test UI</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        h1 { color: #00d4ff; margin-bottom: 20px; }
+        h2 { color: #00d4ff; font-size: 1.2em; margin: 15px 0 10px; }
+        h3 { color: #88ccff; font-size: 1em; margin: 10px 0 5px; }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        .sidebar {
+            width: 350px;
+            flex-shrink: 0;
+        }
+
+        .main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .panel {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .panel.collapsible .panel-header {
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel.collapsible .panel-header::after {
+            content: '▼';
+            font-size: 0.8em;
+        }
+
+        .panel.collapsible.collapsed .panel-header::after {
+            content: '▶';
+        }
+
+        .panel.collapsible.collapsed .panel-content {
+            display: none;
+        }
+
+        button {
+            background: #00d4ff;
+            color: #1a1a2e;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px 5px 5px 0;
+            font-size: 0.9em;
+        }
+        button:hover { background: #00a8cc; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        button.danger { background: #ff4757; color: white; }
+        button.danger:hover { background: #ff3344; }
+        button.secondary { background: #4a5568; color: white; }
+        button.secondary:hover { background: #5a6578; }
+        button.small { padding: 5px 10px; font-size: 0.8em; }
+
+        input, textarea, select {
+            background: #0f3460;
+            border: 1px solid #00d4ff;
+            color: #eee;
+            padding: 10px;
+            border-radius: 5px;
+            width: 100%;
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+        textarea { resize: vertical; min-height: 80px; }
+        select { cursor: pointer; }
+
+        .session-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .session-item {
+            padding: 10px;
+            background: #0f3460;
+            border-radius: 5px;
+            margin: 5px 0;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .session-item:hover { border-color: #00d4ff; }
+        .session-item.active { border-color: #00ff88; background: #1a4a60; }
+        .session-item .status {
+            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        .session-item .status.idle { background: #00ff88; color: #1a1a2e; }
+        .session-item .status.running { background: #ffbe00; color: #1a1a2e; }
+        .session-item .status.starting { background: #00d4ff; color: #1a1a2e; }
+        .session-item .status.stopped { background: #888; }
+        .session-item .status.failed { background: #ff4757; }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 60vh;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            background: #0f3460;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .message {
+            margin: 10px 0;
+            padding: 12px;
+            border-radius: 8px;
+            max-width: 85%;
+        }
+        .message.user {
+            background: #00d4ff;
+            color: #1a1a2e;
+            margin-left: auto;
+        }
+        .message.assistant {
+            background: #16213e;
+            border: 1px solid #333;
+        }
+        .message.system {
+            background: #2d2d44;
+            color: #aaa;
+            font-size: 0.9em;
+            text-align: center;
+            max-width: 100%;
+        }
+        .message.error {
+            background: #4a1a1a;
+            border: 1px solid #ff4757;
+            color: #ff6b7a;
+        }
+        .message pre {
+            background: #0a0a1a;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+        .chat-input textarea {
+            flex: 1;
+            min-height: 60px;
+        }
+
+        .stream-output {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85em;
+            background: #0a0a1a;
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .hierarchy {
+            font-family: monospace;
+            font-size: 0.9em;
+            background: #0a0a1a;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .hierarchy .node {
+            padding: 3px 0;
+        }
+        .hierarchy .node.current {
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        .log-panel {
+            background: #0a0a1a;
+            border-radius: 5px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.8em;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .log-entry { padding: 2px 0; }
+        .log-entry.info { color: #00d4ff; }
+        .log-entry.error { color: #ff4757; }
+        .log-entry.success { color: #00ff88; }
+
+        .info-row { margin: 5px 0; font-size: 0.9em; }
+        .info-row label { color: #888; }
+        .info-row span { color: #eee; }
+
+        .flex-row { display: flex; gap: 10px; align-items: center; }
+        .flex-row > * { flex: 1; }
+
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #333;
+            margin-bottom: 10px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            color: #888;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+        .tab:hover { color: #eee; }
+        .tab.active {
+            color: #00d4ff;
+            border-bottom-color: #00d4ff;
+        }
+
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+
+        .config-section {
+            background: #0f3460;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 10px;
+            margin: 5px 0;
+            align-items: center;
+        }
+        .config-row label {
+            min-width: 120px;
+            color: #888;
+        }
+        .config-row input, .config-row select {
+            flex: 1;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 5px 0;
+        }
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #eee;
+            font-size: 0.9em;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        .children-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .child-item {
+            padding: 8px;
+            background: #0f3460;
+            border-radius: 5px;
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .child-item .child-id {
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>CC-Docker Test UI - Plugin Edition</h1>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="panel">
+                <h2>Sessions</h2>
+                <button onclick="showCreateSessionModal()">+ New Session</button>
+                <button onclick="refreshSessions()" class="secondary">Refresh</button>
+                <div id="sessionList" class="session-list"></div>
+            </div>
+
+            <div class="panel">
+                <h2>Current Session</h2>
+                <div id="sessionInfo">
+                    <p style="color: #888;">No session selected</p>
+                </div>
+                <div id="sessionActions" style="display: none;">
+                    <button onclick="spawnChild()">Spawn Child</button>
+                    <button onclick="stopSession()" class="danger">Stop</button>
+                    <button onclick="deleteSession()" class="danger small">Delete</button>
+                </div>
+            </div>
+
+            <div class="panel collapsible" onclick="togglePanel(this)">
+                <div class="panel-header">
+                    <h2 style="margin: 0;">Child Sessions</h2>
+                </div>
+                <div class="panel-content">
+                    <div id="childrenList" class="children-list">
+                        <p style="color: #888;">No children</p>
+                    </div>
+                    <button onclick="refreshChildren()" class="secondary small">Refresh Children</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Session Hierarchy</h2>
+                <div id="hierarchy" class="hierarchy">
+                    <p style="color: #888;">No hierarchy</p>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Log</h2>
+                <div id="logPanel" class="log-panel"></div>
+            </div>
+        </div>
+
+        <div class="main">
+            <div class="tabs">
+                <div class="tab active" onclick="showTab('chat')">Chat</div>
+                <div class="tab" onclick="showTab('config')">Session Config</div>
+                <div class="tab" onclick="showTab('mcp')">MCP Tools</div>
+            </div>
+
+            <div id="tab-chat" class="tab-content active">
+                <div class="panel chat-container">
+                    <div id="chatMessages" class="chat-messages">
+                        <div class="message system">Select or create a session to start chatting</div>
+                    </div>
+                    <div class="chat-input">
+                        <textarea id="promptInput" placeholder="Type your message..." onkeydown="handleKeyDown(event)"></textarea>
+                        <div>
+                            <button onclick="sendMessage()">Send</button>
+                            <br>
+                            <label style="font-size: 0.8em; color: #888;">
+                                <input type="checkbox" id="streamMode" checked> Stream
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Stream Output</h2>
+                    <div id="streamOutput" class="stream-output">Waiting for output...</div>
+                </div>
+            </div>
+
+            <div id="tab-config" class="tab-content">
+                <div class="panel">
+                    <h2>Session Configuration</h2>
+                    <p style="color: #888;">Configuration for new sessions. Changes apply to newly created sessions.</p>
+
+                    <div class="config-section">
+                        <h3>Basic Settings</h3>
+                        <div class="config-row">
+                            <label>Model:</label>
+                            <select id="configModel">
+                                <option value="opus-4">Opus 4</option>
+                                <option value="sonnet-4">Sonnet 4</option>
+                                <option value="haiku">Haiku</option>
+                            </select>
+                        </div>
+                        <div class="config-row">
+                            <label>Timeout (sec):</label>
+                            <input type="number" id="configTimeout" value="3600" min="60" max="86400">
+                        </div>
+                        <div class="config-row">
+                            <label>Max Turns:</label>
+                            <input type="number" id="configMaxTurns" value="100" min="1" max="1000">
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>MCP Servers</h3>
+                        <p style="color: #888; font-size: 0.9em;">Enable MCP servers for this session</p>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" id="mcpCcDocker" checked disabled> cc-docker (required)</label>
+                            <label><input type="checkbox" id="mcpFilesystem" checked> filesystem</label>
+                            <label><input type="checkbox" id="mcpPlaywright" checked> playwright</label>
+                            <label><input type="checkbox" id="mcpSqlite" checked> sqlite</label>
+                            <label><input type="checkbox" id="mcpGithub"> github (requires token)</label>
+                            <label><input type="checkbox" id="mcpPostgres"> postgres (requires URL)</label>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Secrets</h3>
+                        <p style="color: #888; font-size: 0.9em;">Secrets to inject into the container</p>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" id="secretGithub"> GITHUB_TOKEN</label>
+                            <label><input type="checkbox" id="secretPostgres"> POSTGRES_URL</label>
+                            <label><input type="checkbox" id="secretSqlite"> SQLITE_DB_PATH</label>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Skills</h3>
+                        <p style="color: #888; font-size: 0.9em;">Enable skills (slash commands)</p>
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" id="skillDelegate" checked> delegate-task</label>
+                            <label><input type="checkbox" id="skillCoordinate" checked> coordinate-children</label>
+                            <label><input type="checkbox" id="skillStatus" checked> child-status</label>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>System Prompt</h3>
+                        <textarea id="configSystemPrompt" placeholder="Optional system prompt override..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-mcp" class="tab-content">
+                <div class="panel">
+                    <h2>MCP Tools Testing</h2>
+                    <p style="color: #888;">Test inter-session communication tools directly</p>
+
+                    <div class="config-section">
+                        <h3>Spawn Child</h3>
+                        <div class="config-row">
+                            <label>Prompt:</label>
+                            <input type="text" id="spawnPrompt" placeholder="Task for child session...">
+                        </div>
+                        <div class="config-row">
+                            <label>Task Type:</label>
+                            <input type="text" id="spawnTaskType" placeholder="e.g., code-review, research">
+                        </div>
+                        <button onclick="testSpawnChild()">Spawn Child Session</button>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Send to Child</h3>
+                        <div class="config-row">
+                            <label>Child ID:</label>
+                            <select id="sendChildId">
+                                <option value="">Select a child...</option>
+                            </select>
+                        </div>
+                        <div class="config-row">
+                            <label>Prompt:</label>
+                            <input type="text" id="sendPrompt" placeholder="Follow-up prompt...">
+                        </div>
+                        <button onclick="testSendToChild()">Send Prompt</button>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Get Child Output</h3>
+                        <div class="config-row">
+                            <label>Child ID:</label>
+                            <select id="outputChildId">
+                                <option value="">Select a child...</option>
+                            </select>
+                        </div>
+                        <button onclick="testGetChildOutput()">Get Output</button>
+                        <div id="childOutputDisplay" class="stream-output" style="margin-top: 10px; max-height: 150px;">No output yet...</div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Get Child Result</h3>
+                        <div class="config-row">
+                            <label>Child ID:</label>
+                            <select id="resultChildId">
+                                <option value="">Select a child...</option>
+                            </select>
+                        </div>
+                        <label style="font-size: 0.9em;">
+                            <input type="checkbox" id="waitForResult"> Wait for completion
+                        </label>
+                        <button onclick="testGetChildResult()">Get Result</button>
+                        <div id="childResultDisplay" class="stream-output" style="margin-top: 10px; max-height: 150px;">No result yet...</div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Stop Child</h3>
+                        <div class="config-row">
+                            <label>Child ID:</label>
+                            <select id="stopChildId">
+                                <option value="">Select a child...</option>
+                            </select>
+                        </div>
+                        <label style="font-size: 0.9em;">
+                            <input type="checkbox" id="forceStop"> Force stop
+                        </label>
+                        <button onclick="testStopChild()" class="danger">Stop Child</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Session Modal -->
+    <div id="createSessionModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000;">
+        <div style="background: #16213e; padding: 20px; border-radius: 10px; max-width: 500px; margin: 100px auto;">
+            <h2>Create New Session</h2>
+            <div class="config-row">
+                <label>Workspace:</label>
+                <select id="newSessionWorkspace">
+                    <option value="ephemeral">Ephemeral (temporary)</option>
+                    <option value="persistent">Persistent</option>
+                </select>
+            </div>
+            <div style="margin-top: 15px;">
+                <button onclick="createSessionFromModal()">Create Session</button>
+                <button onclick="hideCreateSessionModal()" class="secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/v1';
+        let currentSessionId = null;
+        let ws = null;
+        let sessions = [];
+        let children = [];
+        let authToken = null;
+        let sessionMessages = {};
+        let sessionStreamOutput = {};
+
+        // Fetch a valid test token from the server
+        async function getTestToken() {
+            try {
+                const response = await fetch(`${API_BASE}/test-token?user_id=test-ui-user`);
+                const data = await response.json();
+                return data.token;
+            } catch (error) {
+                console.error('Failed to get test token:', error);
+                return null;
+            }
+        }
+
+        function log(msg, type = 'info') {
+            const panel = document.getElementById('logPanel');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            panel.appendChild(entry);
+            panel.scrollTop = panel.scrollHeight;
+        }
+
+        async function apiCall(endpoint, options = {}) {
+            if (!authToken) {
+                throw new Error('No auth token available');
+            }
+
+            const headers = {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ detail: response.statusText }));
+                    throw new Error(error.detail || `HTTP ${response.status}`);
+                }
+
+                if (response.status === 204) return null;
+                return await response.json();
+            } catch (error) {
+                log(`API Error: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        function showTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[onclick="showTab('${tabId}')"]`).classList.add('active');
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+        }
+
+        function togglePanel(panel) {
+            panel.classList.toggle('collapsed');
+        }
+
+        function showCreateSessionModal() {
+            document.getElementById('createSessionModal').style.display = 'block';
+        }
+
+        function hideCreateSessionModal() {
+            document.getElementById('createSessionModal').style.display = 'none';
+        }
+
+        function getSessionConfig() {
+            const secrets = [];
+            if (document.getElementById('secretGithub').checked) secrets.push('GITHUB_TOKEN');
+            if (document.getElementById('secretPostgres').checked) secrets.push('POSTGRES_URL');
+            if (document.getElementById('secretSqlite').checked) secrets.push('SQLITE_DB_PATH');
+
+            const skills = [];
+            if (document.getElementById('skillDelegate').checked) skills.push('delegate-task');
+            if (document.getElementById('skillCoordinate').checked) skills.push('coordinate-children');
+            if (document.getElementById('skillStatus').checked) skills.push('child-status');
+
+            return {
+                timeout_seconds: parseInt(document.getElementById('configTimeout').value) || 3600,
+                max_turns: parseInt(document.getElementById('configMaxTurns').value) || 100,
+                model: document.getElementById('configModel').value,
+                secrets: secrets,
+                skills: skills,
+                system_prompt: document.getElementById('configSystemPrompt').value || null
+            };
+        }
+
+        async function createSessionFromModal() {
+            hideCreateSessionModal();
+            await createSession();
+        }
+
+        async function createSession() {
+            log('Creating new session...');
+            try {
+                const config = getSessionConfig();
+                const workspaceType = document.getElementById('newSessionWorkspace').value;
+
+                const result = await apiCall('/sessions', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        workspace: { type: workspaceType },
+                        config: config
+                    })
+                });
+                log(`Session created: ${result.session_id}`, 'success');
+                await refreshSessions();
+                selectSession(result.session_id);
+                setTimeout(() => pollSessionStatus(result.session_id), 2000);
+            } catch (error) {
+                log(`Failed to create session: ${error.message}`, 'error');
+            }
+        }
+
+        async function pollSessionStatus(sessionId, attempts = 0) {
+            if (attempts > 30) {
+                log('Session startup timeout', 'error');
+                return;
+            }
+            try {
+                const session = await apiCall(`/sessions/${sessionId}`);
+                if (session.status === 'idle') {
+                    log(`Session ${sessionId.slice(0, 8)}... is ready`, 'success');
+                    await refreshSessions();
+                    updateSessionInfo(session);
+                } else if (session.status === 'starting') {
+                    setTimeout(() => pollSessionStatus(sessionId, attempts + 1), 1000);
+                } else {
+                    log(`Session status: ${session.status}`, 'info');
+                    await refreshSessions();
+                }
+            } catch (error) {
+                setTimeout(() => pollSessionStatus(sessionId, attempts + 1), 1000);
+            }
+        }
+
+        async function refreshSessions() {
+            try {
+                const result = await apiCall('/sessions');
+                sessions = result.sessions;
+                renderSessionList();
+            } catch (error) {
+                log(`Failed to refresh sessions: ${error.message}`, 'error');
+            }
+        }
+
+        function renderSessionList() {
+            const list = document.getElementById('sessionList');
+            if (sessions.length === 0) {
+                list.innerHTML = '<p style="color: #888; padding: 10px;">No sessions</p>';
+                return;
+            }
+
+            list.innerHTML = sessions.map(s => `
+                <div class="session-item ${s.session_id === currentSessionId ? 'active' : ''}"
+                     onclick="selectSession('${s.session_id}')">
+                    <div>${s.session_id.slice(0, 8)}...</div>
+                    <span class="status ${s.status}">${s.status}</span>
+                    ${s.parent_session_id ? '<span style="color: #888; font-size: 0.8em;"> (child)</span>' : ''}
+                    ${s.child_session_ids && s.child_session_ids.length > 0 ? `<span style="color: #00d4ff; font-size: 0.8em;"> [${s.child_session_ids.length} children]</span>` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function selectSession(sessionId) {
+            if (currentSessionId) {
+                sessionStreamOutput[currentSessionId] = document.getElementById('streamOutput').textContent;
+            }
+
+            currentSessionId = sessionId;
+            log(`Selected session: ${sessionId.slice(0, 8)}...`);
+            renderSessionList();
+
+            try {
+                const session = await apiCall(`/sessions/${sessionId}`);
+                updateSessionInfo(session);
+                await updateHierarchy(sessionId);
+                await refreshChildren();
+                connectWebSocket(sessionId);
+
+                const chat = document.getElementById('chatMessages');
+                if (sessionMessages[sessionId] && sessionMessages[sessionId].length > 0) {
+                    chat.innerHTML = '<div class="message system">Session selected. Start chatting!</div>';
+                    sessionMessages[sessionId].forEach(msg => {
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = `message ${msg.type}`;
+                        msgDiv.innerHTML = msg.content;
+                        chat.appendChild(msgDiv);
+                    });
+                } else {
+                    chat.innerHTML = '<div class="message system">Session selected. Start chatting!</div>';
+                    sessionMessages[sessionId] = [];
+                }
+                chat.scrollTop = chat.scrollHeight;
+
+                const output = document.getElementById('streamOutput');
+                output.textContent = sessionStreamOutput[sessionId] || 'Waiting for output...';
+            } catch (error) {
+                log(`Failed to get session details: ${error.message}`, 'error');
+            }
+        }
+
+        function updateSessionInfo(session) {
+            const info = document.getElementById('sessionInfo');
+            info.innerHTML = `
+                <div class="info-row"><label>ID:</label> <span>${session.session_id.slice(0, 12)}...</span></div>
+                <div class="info-row"><label>Status:</label> <span>${session.status}</span></div>
+                <div class="info-row"><label>Created:</label> <span>${new Date(session.created_at).toLocaleString()}</span></div>
+                <div class="info-row"><label>Turns:</label> <span>${session.total_turns || 0}</span></div>
+                ${session.parent_session_id ? `<div class="info-row"><label>Parent:</label> <span>${session.parent_session_id.slice(0, 8)}...</span></div>` : ''}
+                ${session.child_session_ids && session.child_session_ids.length > 0 ? `<div class="info-row"><label>Children:</label> <span>${session.child_session_ids.length}</span></div>` : ''}
+            `;
+            document.getElementById('sessionActions').style.display = 'block';
+        }
+
+        async function refreshChildren() {
+            if (!currentSessionId) return;
+
+            try {
+                const result = await apiCall(`/sessions/${currentSessionId}/children`);
+                children = result.children || [];
+                renderChildrenList();
+                updateChildSelects();
+            } catch (error) {
+                log(`Failed to refresh children: ${error.message}`, 'error');
+            }
+        }
+
+        function renderChildrenList() {
+            const list = document.getElementById('childrenList');
+            if (children.length === 0) {
+                list.innerHTML = '<p style="color: #888;">No children</p>';
+                return;
+            }
+
+            list.innerHTML = children.map(c => `
+                <div class="child-item">
+                    <div>
+                        <span class="child-id">${c.session_id.slice(0, 8)}...</span>
+                        <span class="status ${c.status}" style="margin-left: 10px;">${c.status}</span>
+                    </div>
+                    <button class="small secondary" onclick="selectSession('${c.session_id}')">Select</button>
+                </div>
+            `).join('');
+        }
+
+        function updateChildSelects() {
+            const options = children.map(c =>
+                `<option value="${c.session_id}">${c.session_id.slice(0, 8)}... (${c.status})</option>`
+            ).join('');
+
+            const defaultOption = '<option value="">Select a child...</option>';
+
+            ['sendChildId', 'outputChildId', 'resultChildId', 'stopChildId'].forEach(id => {
+                document.getElementById(id).innerHTML = defaultOption + options;
+            });
+        }
+
+        async function updateHierarchy(sessionId) {
+            const hierarchyDiv = document.getElementById('hierarchy');
+
+            async function buildTree(sid, depth = 0) {
+                const session = sessions.find(s => s.session_id === sid);
+                if (!session) return '';
+
+                const prefix = '  '.repeat(depth) + (depth > 0 ? '|- ' : '');
+                const isCurrent = sid === currentSessionId;
+                let html = `<div class="node ${isCurrent ? 'current' : ''}">${prefix}${sid.slice(0, 8)}... [${session.status}]</div>`;
+
+                const children = sessions.filter(s => s.parent_session_id === sid);
+                for (const child of children) {
+                    html += await buildTree(child.session_id, depth + 1);
+                }
+                return html;
+            }
+
+            let rootId = sessionId;
+            let session = sessions.find(s => s.session_id === sessionId);
+            while (session && session.parent_session_id) {
+                rootId = session.parent_session_id;
+                session = sessions.find(s => s.session_id === rootId);
+            }
+
+            const tree = await buildTree(rootId);
+            hierarchyDiv.innerHTML = tree || '<p style="color: #888;">No hierarchy</p>';
+        }
+
+        function connectWebSocket(sessionId) {
+            if (ws) {
+                ws.close();
+            }
+
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}${API_BASE}/sessions/${sessionId}/stream?token=${authToken}`;
+
+            log(`Connecting WebSocket...`);
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                log('WebSocket connected', 'success');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleStreamMessage(data);
+                } catch (e) {
+                    log(`WS parse error: ${e.message}`, 'error');
+                }
+            };
+
+            ws.onerror = (error) => {
+                log('WebSocket error', 'error');
+            };
+
+            ws.onclose = () => {
+                log('WebSocket disconnected');
+            };
+        }
+
+        function handleStreamMessage(data) {
+            const output = document.getElementById('streamOutput');
+            const chat = document.getElementById('chatMessages');
+
+            console.log('WS message:', data);
+
+            if (data.type === 'assistant') {
+                const message = data.message || {};
+                const content = message.content || '';
+
+                if (Array.isArray(content)) {
+                    content.forEach(item => {
+                        if (item.type === 'text') {
+                            output.textContent += item.text + '\n';
+                        }
+                    });
+                } else if (typeof content === 'string') {
+                    output.textContent += content + '\n';
+                }
+
+                if (message.model) {
+                    output.textContent += `[Model: ${message.model}]\n`;
+                }
+                output.scrollTop = output.scrollHeight;
+
+            } else if (data.type === 'tool_use') {
+                const toolName = data.tool || data.name || 'unknown';
+                const toolInput = data.input || {};
+                output.textContent += `\n[Tool: ${toolName}]\n`;
+                output.textContent += `Input: ${JSON.stringify(toolInput, null, 2).slice(0, 500)}\n`;
+                output.scrollTop = output.scrollHeight;
+
+            } else if (data.type === 'tool_result') {
+                const result = data.result || data.output || '';
+                output.textContent += `[Tool Result]: ${typeof result === 'string' ? result.slice(0, 200) : JSON.stringify(result).slice(0, 200)}...\n`;
+                output.scrollTop = output.scrollHeight;
+
+            } else if (data.type === 'result') {
+                const resultText = data.result || data.data?.result || '';
+                if (resultText) {
+                    addMessage(resultText, 'assistant');
+                }
+                output.textContent += '\n=== Complete ===\n';
+                const usage = data.usage || data.data?.usage || {};
+                const inputTokens = usage.input_tokens || usage.inputTokens || 0;
+                const outputTokens = usage.output_tokens || usage.outputTokens || 0;
+                output.textContent += `Tokens: ${inputTokens} in, ${outputTokens} out\n`;
+                log(`Response complete. Tokens: ${inputTokens} in, ${outputTokens} out`, 'success');
+                refreshSessions();
+                refreshChildren();
+
+            } else if (data.type === 'error') {
+                const errorMsg = data.data?.message || data.data?.error || data.message || data.error || 'Unknown error';
+                output.textContent += `\n[ERROR]: ${errorMsg}\n`;
+                addMessage(`Error: ${errorMsg}`, 'error');
+                log(`Error: ${errorMsg}`, 'error');
+
+            } else if (data.type === 'system') {
+                const event = data.event || 'event';
+                log(`System: ${event}`, 'info');
+                if (data.data) {
+                    output.textContent += `[System: ${event}] ${JSON.stringify(data.data)}\n`;
+                }
+
+            } else {
+                output.textContent += `[${data.type || 'unknown'}]: ${JSON.stringify(data).slice(0, 300)}\n`;
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+
+        function addMessage(content, type) {
+            const chat = document.getElementById('chatMessages');
+            const msg = document.createElement('div');
+            msg.className = `message ${type}`;
+
+            let formatted = content
+                .replace(/```([\s\S]*?)```/g, '<pre>$1</pre>')
+                .replace(/`([^`]+)`/g, '<code style="background:#0a0a1a;padding:2px 5px;border-radius:3px;">$1</code>')
+                .replace(/\n/g, '<br>');
+
+            msg.innerHTML = formatted;
+            chat.appendChild(msg);
+            chat.scrollTop = chat.scrollHeight;
+
+            if (currentSessionId) {
+                if (!sessionMessages[currentSessionId]) {
+                    sessionMessages[currentSessionId] = [];
+                }
+                sessionMessages[currentSessionId].push({ type, content: formatted });
+            }
+        }
+
+        async function sendMessage() {
+            if (!currentSessionId) {
+                log('No session selected', 'error');
+                return;
+            }
+
+            const input = document.getElementById('promptInput');
+            const prompt = input.value.trim();
+            if (!prompt) return;
+
+            const streamMode = document.getElementById('streamMode').checked;
+
+            addMessage(prompt, 'user');
+            input.value = '';
+
+            document.getElementById('streamOutput').textContent = '';
+
+            log(`Sending message (stream=${streamMode})...`);
+
+            try {
+                const result = await apiCall(`/sessions/${currentSessionId}/chat`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        stream: streamMode
+                    })
+                });
+
+                if (!streamMode && result.result) {
+                    addMessage(result.result, 'assistant');
+                    document.getElementById('streamOutput').textContent = result.result;
+                    log(`Response received`, 'success');
+                } else {
+                    log(`Message sent, waiting for stream...`);
+                }
+            } catch (error) {
+                addMessage(`Failed to send: ${error.message}`, 'error');
+            }
+        }
+
+        function handleKeyDown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        async function spawnChild() {
+            if (!currentSessionId) {
+                log('No session selected', 'error');
+                return;
+            }
+
+            const prompt = window.prompt('Enter initial prompt for child session:', 'Hello, I am a child instance.');
+            if (!prompt) return;
+
+            log(`Spawning child from ${currentSessionId.slice(0, 8)}...`);
+
+            try {
+                const result = await apiCall(`/sessions/${currentSessionId}/spawn`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        prompt: prompt
+                    })
+                });
+
+                log(`Child spawned: ${result.child_session_id}`, 'success');
+                await refreshSessions();
+                await updateHierarchy(currentSessionId);
+                await refreshChildren();
+
+                setTimeout(() => pollSessionStatus(result.child_session_id), 2000);
+            } catch (error) {
+                log(`Failed to spawn child: ${error.message}`, 'error');
+            }
+        }
+
+        // MCP Tools Testing Functions
+        async function testSpawnChild() {
+            if (!currentSessionId) {
+                log('No session selected', 'error');
+                return;
+            }
+
+            const prompt = document.getElementById('spawnPrompt').value;
+            const taskType = document.getElementById('spawnTaskType').value;
+
+            if (!prompt) {
+                log('Please enter a prompt', 'error');
+                return;
+            }
+
+            log(`Spawning child with prompt: ${prompt.slice(0, 50)}...`);
+
+            try {
+                const result = await apiCall(`/sessions/${currentSessionId}/spawn`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        task_type: taskType || undefined
+                    })
+                });
+
+                log(`Child spawned: ${result.child_session_id}`, 'success');
+                await refreshSessions();
+                await refreshChildren();
+            } catch (error) {
+                log(`Failed to spawn child: ${error.message}`, 'error');
+            }
+        }
+
+        async function testSendToChild() {
+            const childId = document.getElementById('sendChildId').value;
+            const prompt = document.getElementById('sendPrompt').value;
+
+            if (!childId || !prompt) {
+                log('Please select a child and enter a prompt', 'error');
+                return;
+            }
+
+            log(`Sending prompt to child ${childId.slice(0, 8)}...`);
+
+            try {
+                const result = await apiCall(`/sessions/${childId}/chat`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        stream: true
+                    })
+                });
+
+                log(`Prompt sent to child`, 'success');
+            } catch (error) {
+                log(`Failed to send to child: ${error.message}`, 'error');
+            }
+        }
+
+        async function testGetChildOutput() {
+            const childId = document.getElementById('outputChildId').value;
+
+            if (!childId) {
+                log('Please select a child', 'error');
+                return;
+            }
+
+            log(`Getting output from child ${childId.slice(0, 8)}...`);
+
+            try {
+                const session = await apiCall(`/sessions/${childId}`);
+                document.getElementById('childOutputDisplay').textContent =
+                    `Status: ${session.status}\n` +
+                    `Turns: ${session.total_turns || 0}\n` +
+                    `Last activity: ${session.last_activity || 'N/A'}`;
+
+                log(`Got child output`, 'success');
+            } catch (error) {
+                log(`Failed to get child output: ${error.message}`, 'error');
+            }
+        }
+
+        async function testGetChildResult() {
+            const childId = document.getElementById('resultChildId').value;
+            const wait = document.getElementById('waitForResult').checked;
+
+            if (!childId) {
+                log('Please select a child', 'error');
+                return;
+            }
+
+            log(`Getting result from child ${childId.slice(0, 8)}... (wait=${wait})`);
+
+            try {
+                const session = await apiCall(`/sessions/${childId}`);
+                document.getElementById('childResultDisplay').textContent =
+                    JSON.stringify(session, null, 2);
+
+                log(`Got child result`, 'success');
+            } catch (error) {
+                log(`Failed to get child result: ${error.message}`, 'error');
+            }
+        }
+
+        async function testStopChild() {
+            const childId = document.getElementById('stopChildId').value;
+            const force = document.getElementById('forceStop').checked;
+
+            if (!childId) {
+                log('Please select a child', 'error');
+                return;
+            }
+
+            if (!confirm(`Stop child session ${childId.slice(0, 8)}...?`)) return;
+
+            log(`Stopping child ${childId.slice(0, 8)}... (force=${force})`);
+
+            try {
+                await apiCall(`/sessions/${childId}/stop`, {
+                    method: 'POST'
+                });
+
+                log(`Child stopped`, 'success');
+                await refreshChildren();
+            } catch (error) {
+                log(`Failed to stop child: ${error.message}`, 'error');
+            }
+        }
+
+        async function stopSession() {
+            if (!currentSessionId) return;
+
+            log(`Stopping session ${currentSessionId.slice(0, 8)}...`);
+
+            try {
+                await apiCall(`/sessions/${currentSessionId}/stop`, {
+                    method: 'POST'
+                });
+                log('Session stopped', 'success');
+                await refreshSessions();
+            } catch (error) {
+                log(`Failed to stop session: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteSession() {
+            if (!currentSessionId) return;
+
+            if (!confirm('Delete this session? This cannot be undone.')) return;
+
+            log(`Deleting session ${currentSessionId.slice(0, 8)}...`);
+
+            try {
+                await apiCall(`/sessions/${currentSessionId}`, {
+                    method: 'DELETE'
+                });
+                log('Session deleted', 'success');
+                currentSessionId = null;
+                document.getElementById('sessionInfo').innerHTML = '<p style="color: #888;">No session selected</p>';
+                document.getElementById('sessionActions').style.display = 'none';
+                await refreshSessions();
+            } catch (error) {
+                log(`Failed to delete session: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize
+        async function init() {
+            log('Fetching test token...');
+            authToken = await getTestToken();
+            if (authToken) {
+                log('Got test token', 'success');
+                await refreshSessions();
+            } else {
+                log('Failed to get test token', 'error');
+            }
+            log('Test UI initialized');
+        }
+        init();
+    </script>
+</body>
+</html>

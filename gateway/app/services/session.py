@@ -63,6 +63,10 @@ class SessionService:
         if request.parent_session_id:
             environment["PARENT_SESSION_ID"] = request.parent_session_id
 
+        # Inject secrets based on session configuration
+        requested_secrets = request.config.secrets if hasattr(request.config, 'secrets') else []
+        self._inject_secrets(environment, requested_secrets)
+
         # Add Claude Code configuration if provided
         if request.config.claude_config:
             import json
@@ -151,7 +155,6 @@ class SessionService:
             last_activity=session.updated_at,
             parent_session_id=session.parent_session_id,
             child_session_ids=child_ids,
-            total_cost_usd=session.total_cost_usd,
             total_turns=session.total_turns,
         )
 
@@ -260,3 +263,28 @@ class SessionService:
         os.makedirs(workspace_path, exist_ok=True)
 
         return workspace_path
+
+    def _inject_secrets(
+        self, environment: dict, requested_secrets: list
+    ) -> None:
+        """Inject secrets into container environment based on session config."""
+        # Map of secret names to their environment variable names and settings keys
+        secret_mapping = {
+            "GITHUB_TOKEN": ("GITHUB_TOKEN", settings.cc_secret_github_token),
+            "POSTGRES_URL": ("POSTGRES_URL", settings.cc_secret_postgres_url),
+            "SQLITE_DB_PATH": ("SQLITE_DB_PATH", settings.cc_secret_sqlite_db_path),
+            "BROWSER_PROXY": ("BROWSER_PROXY", settings.cc_secret_browser_proxy),
+        }
+
+        # If no secrets explicitly requested, inject all available secrets
+        if not requested_secrets:
+            requested_secrets = list(secret_mapping.keys())
+
+        for secret_name in requested_secrets:
+            if secret_name in secret_mapping:
+                env_var, secret_value = secret_mapping[secret_name]
+                if secret_value:
+                    environment[env_var] = secret_value
+                    logger.debug(f"Injected secret {secret_name} into container")
+            else:
+                logger.warning(f"Unknown secret requested: {secret_name}")

@@ -20,6 +20,13 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-}
       - CLAUDE_CREDENTIALS_PATH=${CLAUDE_CREDENTIALS_PATH:-}
+      # Secrets for MCP servers (injected into containers)
+      - CC_SECRET_GITHUB_TOKEN=${CC_SECRET_GITHUB_TOKEN:-}
+      - CC_SECRET_POSTGRES_URL=${CC_SECRET_POSTGRES_URL:-}
+      - CC_SECRET_SQLITE_DB_PATH=${CC_SECRET_SQLITE_DB_PATH:-}
+      - CC_SECRET_BROWSER_PROXY=${CC_SECRET_BROWSER_PROXY:-}
+      # Default MCP servers
+      - CC_DEFAULT_MCP_SERVERS=${CC_DEFAULT_MCP_SERVERS:-cc-docker,filesystem,playwright,sqlite}
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock

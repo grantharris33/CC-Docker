@@ -25,6 +25,7 @@ CC-Docker provides a cost-effective SDK/API layer on top of Claude Code CLI subs
 
 1. [Claude Code Configuration Alignment](#1-claude-code-configuration-alignment)
 2. [Inter-Session Communication](#2-inter-session-communication)
+   - 2.7 [Discord Integration (Human-in-the-Loop)](#27-discord-integration-human-in-the-loop)
 3. [Pre-installed MCP Servers](#3-pre-installed-mcp-servers)
 4. [Custom CC-Docker Skills](#4-custom-cc-docker-skills)
 5. [Browser Automation](#5-browser-automation)
@@ -241,6 +242,8 @@ A custom MCP server running inside each container that enables inter-session com
 | `list_children` | List all child sessions with their status |
 | `stop_child` | Terminate a running child session |
 | `get_parent_context` | Get context/data from parent session |
+| `notify_user` | Send a notification to the user via Discord |
+| `ask_user` | Ask the user a question via Discord and wait for response |
 
 #### Example Usage (from Claude Code inside container)
 
@@ -288,6 +291,299 @@ Parent                    Redis                     Child
   │                         │◄─── final result ───────│
   │◄── result ──────────────│                         │
 ```
+
+### 2.7 Discord Integration (Human-in-the-Loop)
+
+CC-Docker enables direct communication between Claude Code sessions and users via Discord. This provides human-in-the-loop capabilities for long-running tasks.
+
+#### 2.7.1 Discord MCP Tools
+
+The CC-Docker MCP server includes two Discord tools for user communication:
+
+**notify_user**: Fire-and-forget notifications
+- Send progress updates, completion notifications, or alerts
+- Non-blocking (returns immediately)
+- Useful for keeping users informed of task progress
+
+**ask_user**: Blocking questions that wait for user response
+- Ask for decisions, clarifications, or approvals
+- Blocks until user responds in Discord (with timeout)
+- Enables human oversight at critical decision points
+
+#### 2.7.2 notify_user Tool
+
+```typescript
+interface NotifyUserInput {
+  message: string;          // Notification message (1-2000 chars)
+  priority?: "normal" | "urgent";  // Default: "normal"
+}
+
+interface NotifyUserOutput {
+  success: boolean;
+  interaction_id: string;
+}
+```
+
+**Example Usage**:
+```
+# From Claude Code inside container
+notify_user(
+  message="Analysis complete: Found 12 security issues in auth.py",
+  priority="normal"
+)
+
+notify_user(
+  message="🚨 Critical: Production deployment failed, manual intervention needed",
+  priority="urgent"
+)
+```
+
+**Behavior**:
+- Message posted to configured Discord channel
+- Returns immediately (non-blocking)
+- No user response expected
+- Tracked in database for audit
+
+#### 2.7.3 ask_user Tool
+
+```typescript
+interface AskUserInput {
+  question: string;         // Question text (1-2000 chars)
+  timeout_seconds?: number; // Wait timeout (60-7200s, default: 1800)
+  max_attempts?: number;    // Retry attempts (1-5, default: 3)
+  priority?: "normal" | "urgent";
+}
+
+interface AskUserOutput {
+  response: string;         // User's answer
+  timed_out: boolean;       // Whether request timed out
+  interaction_id: string;
+}
+```
+
+**Example Usage**:
+```
+# Ask for user decision
+response = ask_user(
+  question="Should I proceed with refactoring auth.py? This will modify 15 functions.",
+  timeout_seconds=300
+)
+
+if "yes" in response.lower():
+    # Proceed with refactoring
+    ...
+
+# Ask which approach to use
+choice = ask_user(
+  question="Which library should I use for rate limiting: A) redis-rate-limit B) express-rate-limit C) rate-limiter-flexible?",
+  timeout_seconds=600
+)
+```
+
+**Behavior**:
+- Creates a Discord thread with the question
+- Blocks Claude Code execution until user responds
+- User replies in the Discord thread
+- Response returned to Claude Code
+- On timeout, retries up to max_attempts
+- Final timeout returns error to Claude Code
+
+#### 2.7.4 Discord Architecture
+
+```
+Claude Code Session (Container)
+    ↓ MCP Tool Call
+CC-Docker MCP Server
+    ↓ HTTP POST
+Gateway API (/api/v1/discord/notify or /api/v1/discord/ask)
+    ↓
+Discord Service (discord.py bot)
+    ↓
+Discord Channel Thread
+    ↓ User replies
+Discord Bot Event Handler
+    ↓ Store response
+Redis (session:{id}:discord:response)
+    ↓ Gateway polls
+Gateway returns response to MCP
+    ↓
+Claude Code resumes with answer
+```
+
+#### 2.7.5 Configuration
+
+**Environment Variables** (Gateway):
+```bash
+DISCORD_BOT_TOKEN=your_bot_token_here
+DISCORD_CHANNEL_ID=1234567890  # Channel to post to
+DISCORD_QUESTION_TIMEOUT=1800   # Default timeout (30 min)
+DISCORD_MAX_RETRIES=3
+```
+
+**MCP Configuration** (Auto-generated in `.mcp.json`):
+```json
+{
+  "mcpServers": {
+    "cc-docker": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/opt/cc-docker-mcp/index.js"],
+      "env": {
+        "SESSION_ID": "${SESSION_ID}",
+        "GATEWAY_URL": "${GATEWAY_URL}"
+      }
+    }
+  }
+}
+```
+
+#### 2.7.6 Database Tracking
+
+All Discord interactions are persisted in the `discord_interactions` table:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Unique interaction ID |
+| session_id | UUID | CC session that created interaction |
+| interaction_type | enum | "notification" or "question" |
+| message | text | Notification message or question text |
+| response | text | User's answer (for questions) |
+| status | enum | "pending", "answered", "timeout", "completed" |
+| discord_thread_id | string | Discord thread ID |
+| attempt | int | Current retry attempt |
+| max_attempts | int | Maximum retries |
+| timeout_seconds | int | Timeout per attempt |
+| priority | enum | "normal" or "urgent" |
+| created_at | timestamp | When interaction was created |
+| answered_at | timestamp | When user responded (questions only) |
+
+#### 2.7.7 Use Cases
+
+**Progress Notifications**:
+```
+# Notify user of milestones
+notify_user("Starting code analysis...")
+# ... work ...
+notify_user("Analysis complete: 50 files, 12 issues found")
+notify_user("Applying fixes...")
+# ... work ...
+notify_user("✅ All fixes applied successfully")
+```
+
+**Interactive Decisions**:
+```
+# Ask for approval before critical actions
+response = ask_user(
+  question="Ready to deploy to production. Proceed? (yes/no)",
+  timeout_seconds=600,
+  priority="urgent"
+)
+
+if response.lower() == "yes":
+    deploy_to_production()
+    notify_user("✅ Production deployment complete")
+else:
+    notify_user("Deployment cancelled by user")
+```
+
+**Long-Running Tasks**:
+```
+# Notify start
+notify_user("Starting database migration (estimated 2 hours)...")
+
+# Periodic progress updates
+for i, table in enumerate(tables):
+    migrate_table(table)
+    if i % 10 == 0:
+        notify_user(f"Progress: {i}/{len(tables)} tables migrated")
+
+# Ask if issues found
+if issues_found:
+    response = ask_user(
+      question=f"Found {len(issues)} data inconsistencies. Continue anyway? (yes/no)",
+      timeout_seconds=1800
+    )
+    if response.lower() != "yes":
+        rollback()
+        return
+
+# Notify completion
+notify_user("✅ Migration complete: All tables migrated successfully")
+```
+
+**Multi-Agent Coordination**:
+```
+# Parent spawns multiple children
+children = []
+for i in range(5):
+    child = spawn_child(prompt=f"Review module {i}")
+    children.append(child)
+
+notify_user(f"Spawned {len(children)} review sessions in parallel")
+
+# Wait for completion
+results = [get_child_result(c, wait=True) for c in children]
+
+# Ask user about findings
+issues = aggregate_issues(results)
+if issues:
+    response = ask_user(
+      question=f"Found {len(issues)} issues across modules. Should I create fixes? (yes/no)",
+      timeout_seconds=600
+    )
+
+    if response.lower() == "yes":
+        apply_fixes(issues)
+        notify_user("✅ All fixes applied")
+```
+
+#### 2.7.8 Error Handling
+
+**Timeout Handling**:
+```python
+# In MCP server
+try:
+    response = await ask_user(question="...", timeout_seconds=300)
+    return {"response": response}
+except TimeoutError:
+    # After max_attempts exhausted
+    return {
+        "error": "User did not respond within timeout",
+        "timed_out": True
+    }
+```
+
+**Discord Bot Offline**:
+- Gateway returns 503 Service Unavailable
+- MCP tool returns error to Claude Code
+- Claude Code can decide to proceed without user input or retry
+
+**Network Issues**:
+- Automatic retries at HTTP layer
+- Circuit breaker pattern prevents cascading failures
+- Fallback to polling if WebSocket connection lost
+
+#### 2.7.9 Security Considerations
+
+1. **Authentication**: Only authenticated sessions can use Discord tools
+2. **Rate Limiting**: Max 10 notifications per minute per session
+3. **Message Validation**: Questions limited to 2000 chars, no @mentions
+4. **Thread Isolation**: Each question gets its own Discord thread
+5. **Audit Trail**: All interactions logged with session context
+6. **No Sensitive Data**: Users warned not to paste credentials in Discord
+
+#### 2.7.10 Setup Guide
+
+See `docs/DISCORD_SETUP.md` for complete setup instructions:
+
+1. Create Discord bot in Developer Portal
+2. Enable "Message Content Intent"
+3. Invite bot to server with permissions:
+   - Send Messages
+   - Create Public Threads
+   - Read Message History
+4. Set environment variables in gateway
+5. Test with provided scripts
 
 ---
 
@@ -853,13 +1149,19 @@ RUN npm install -g \
 RUN npx playwright install chromium --with-deps
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
-# Create Python virtual environment and install wrapper
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install uv for Python dependency management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
 # Copy wrapper code
 COPY wrapper/ /opt/wrapper/
-RUN pip install --no-cache-dir -r /opt/wrapper/requirements.txt
+
+# Install wrapper dependencies using uv
+WORKDIR /opt/wrapper
+RUN uv sync --no-dev --no-install-project
+ENV VIRTUAL_ENV=/opt/wrapper/.venv
+ENV PATH="/opt/wrapper/.venv/bin:$PATH"
+WORKDIR /
 
 # Copy CC-Docker MCP server
 COPY mcp-server/ /opt/cc-docker-mcp/

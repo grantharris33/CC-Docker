@@ -8,8 +8,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 echo "Building CC-Docker container image..."
 
-# Copy wrapper to container build context
+# Copy required directories to container build context
 cp -r "$PROJECT_DIR/wrapper" "$PROJECT_DIR/container/"
+cp -r "$PROJECT_DIR/mcp-server" "$PROJECT_DIR/container/"
+cp -r "$PROJECT_DIR/skills" "$PROJECT_DIR/container/"
 
 # Build image
 docker build \
@@ -19,5 +21,7 @@ docker build \
 
 # Cleanup
 rm -rf "$PROJECT_DIR/container/wrapper"
+rm -rf "$PROJECT_DIR/container/mcp-server"
+rm -rf "$PROJECT_DIR/container/skills"
 
 echo "Container image built successfully: cc-docker-container:latest"

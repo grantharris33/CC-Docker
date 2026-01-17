@@ -34,16 +34,27 @@ docker-compose down
 ### Development
 
 ```bash
-# Gateway development (requires Python 3.12+)
+# Gateway development (requires Python 3.12+ and uv)
 cd gateway
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-pip install -r requirements.txt
-JWT_SECRET=test-secret uvicorn app.main:app --reload
+
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies using uv
+uv sync
+
+# Run gateway locally
+JWT_SECRET=test-secret uv run uvicorn app.main:app --reload
 
 # Run tests
-pip install -r tests/requirements.txt
-pytest tests/ -v
+uv sync --dev
+uv run pytest tests/ -v
+
+# Add a new dependency
+uv add <package-name>
+
+# Add a dev dependency
+uv add --dev <package-name>
 
 # End-to-end test (requires services running)
 ./test_parent_child_e2e.sh

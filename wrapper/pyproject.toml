@@ -1,0 +1,12 @@
+[project]
+name = "cc-docker-wrapper"
+version = "0.1.0"
+description = "Claude Code wrapper process for CC-Docker containers"
+requires-python = ">=3.11"
+dependencies = [
+    "redis>=5.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

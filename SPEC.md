@@ -203,9 +203,15 @@ RUN apt-get update && apt-get install -y \
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install wrapper
+# Install uv and wrapper dependencies
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 COPY wrapper/ /opt/wrapper/
-RUN pip install -r /opt/wrapper/requirements.txt
+WORKDIR /opt/wrapper
+RUN uv sync --no-dev --no-install-project
+ENV VIRTUAL_ENV=/opt/wrapper/.venv
+ENV PATH="/opt/wrapper/.venv/bin:$PATH"
+WORKDIR /workspace
 
 # Pre-authenticated Claude config will be mounted at runtime
 # /root/.claude/ -> mounted volume with OAuth token
@@ -991,11 +997,11 @@ cc-docker/
 ├── .env.example
 ├── gateway/
 │   ├── Dockerfile
-│   ├── requirements.txt
+│   ├── pyproject.toml
 │   └── app/
 │       └── ...
 ├── wrapper/
-│   ├── requirements.txt
+│   ├── pyproject.toml
 │   └── ...
 ├── container/
 │   └── Dockerfile

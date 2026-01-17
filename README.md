@@ -10,6 +10,8 @@ A Docker-based service that wraps Claude Code with a FastAPI server, providing a
 - **Streaming Output**: Real-time JSON streaming via WebSocket
 - **Recursive Orchestration**: Claude Code instances can spawn child instances
 - **Workspace Management**: Optional persistence of project workspaces
+- **Discord Integration**: Human-in-the-loop notifications and interactive questions
+- **MCP Server Support**: Pre-configured tools for GitHub, databases, filesystem, and more
 
 ## Quick Start
 
@@ -73,6 +75,8 @@ Authorization: Bearer <jwt_token>
 | POST | /api/v1/sessions/{id}/chat | Send a message |
 | WS | /api/v1/sessions/{id}/stream | WebSocket streaming |
 | POST | /api/v1/sessions/{id}/spawn | Spawn child instance |
+| POST | /api/v1/discord/notify | Send Discord notification |
+| POST | /api/v1/discord/ask | Ask user question via Discord |
 
 ### Example: Create Session
 
@@ -128,7 +132,7 @@ cc-docker/
 │   │   ├── models/     # Pydantic schemas
 │   │   └── services/   # Business logic
 │   ├── Dockerfile
-│   └── requirements.txt
+│   └── pyproject.toml
 ├── wrapper/             # Claude Code wrapper (runs in container)
 ├── container/           # Container image Dockerfile
 ├── scripts/             # Setup and build scripts
@@ -150,6 +154,37 @@ Environment variables (set in `.env`):
 | LOG_LEVEL | INFO | Logging level |
 | CONTAINER_TIMEOUT_DEFAULT | 3600 | Default session timeout |
 | MAX_SPAWN_DEPTH | 5 | Maximum child spawn depth |
+| DISCORD_BOT_TOKEN | - | Discord bot token (optional) |
+| DISCORD_CHANNEL_ID | - | Discord channel ID for notifications (optional) |
+| DISCORD_QUESTION_TIMEOUT | 1800 | Default timeout for Discord questions (seconds) |
+| DISCORD_MAX_RETRIES | 3 | Maximum retry attempts for Discord questions |
+
+### Discord Integration
+
+CC-Docker can communicate with users via Discord for notifications and interactive questions. To enable:
+
+1. **Create a Discord bot** (see `docs/DISCORD_SETUP.md`)
+2. **Set environment variables** in `.env`:
+   ```bash
+   DISCORD_BOT_TOKEN=your_bot_token_here
+   DISCORD_CHANNEL_ID=your_channel_id_here
+   ```
+3. **Use from Claude Code sessions** via MCP tools:
+   ```javascript
+   // Send notification
+   notify_user({
+     message: "Task completed successfully!",
+     priority: "normal"
+   });
+
+   // Ask question and wait for response
+   const response = await ask_user({
+     question: "Should I proceed with deployment?",
+     timeout_seconds: 300
+   });
+   ```
+
+For detailed setup instructions, see [`docs/DISCORD_SETUP.md`](docs/DISCORD_SETUP.md) and [`DISCORD_TEST_RESULTS.md`](DISCORD_TEST_RESULTS.md).
 
 ## Development
 
@@ -157,19 +192,32 @@ Environment variables (set in `.env`):
 
 ```bash
 cd gateway
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync
 
 # Run gateway locally
-JWT_SECRET=test-secret uvicorn app.main:app --reload
+JWT_SECRET=test-secret uv run uvicorn app.main:app --reload
 ```
 
 ### Running Tests
 
 ```bash
-pip install -r tests/requirements.txt
-pytest tests/
+uv sync --dev
+uv run pytest tests/
+```
+
+### Adding Dependencies
+
+```bash
+# Add a runtime dependency
+uv add <package-name>
+
+# Add a dev dependency
+uv add --dev <package-name>
 ```
 
 ## License

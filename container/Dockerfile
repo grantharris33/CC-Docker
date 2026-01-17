@@ -41,13 +41,19 @@ RUN npm install -g \
 RUN npx playwright install chromium --with-deps || true
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
-# Create Python virtual environment and install wrapper dependencies
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install uv for Python dependency management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
 # Copy wrapper code
 COPY wrapper/ /opt/wrapper/
-RUN pip install --no-cache-dir -r /opt/wrapper/requirements.txt
+
+# Install wrapper dependencies using uv (creates .venv in /opt/wrapper/)
+WORKDIR /opt/wrapper
+RUN uv sync --no-dev --no-install-project
+ENV VIRTUAL_ENV=/opt/wrapper/.venv
+ENV PATH="/opt/wrapper/.venv/bin:$PATH"
+WORKDIR /
 
 # Copy CC-Docker MCP server
 COPY mcp-server/ /opt/cc-docker-mcp/

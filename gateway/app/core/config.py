@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Database
-    database_url: str = "sqlite:///data/cc-docker.db"
+    database_url: str = "postgresql+asyncpg://ccadmin:change-me-in-production@postgres:5432/ccdocker"
 
     # Redis
     redis_url: str = "redis://redis:6379"

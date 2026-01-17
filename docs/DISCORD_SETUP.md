@@ -103,8 +103,13 @@ DISCORD_UPDATE_INTERVAL=300          # Update countdown every 5 minutes
 ### Example `.env` file
 
 ```bash
-# JWT and Database
+# JWT Secret
 JWT_SECRET=your-secret-key
+
+# PostgreSQL Database
+POSTGRES_USER=ccadmin
+POSTGRES_PASSWORD=change-me-in-production
+POSTGRES_DB=ccdocker
 
 # MinIO
 MINIO_ACCESS_KEY=minioadmin

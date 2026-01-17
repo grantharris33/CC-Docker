@@ -1,11 +1,11 @@
 """Database connection and session management."""
 
-import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
@@ -18,19 +18,18 @@ class Base(DeclarativeBase):
 
 settings = get_settings()
 
-# Convert sqlite:// to sqlite+aiosqlite:// for async support
-database_url = settings.database_url
-if database_url.startswith("sqlite://"):
-    database_url = database_url.replace("sqlite://", "sqlite+aiosqlite://")
-
-# Ensure data directory exists
-db_path = database_url.replace("sqlite+aiosqlite:///", "")
-os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-
+# Create engine with PostgreSQL-specific settings
 engine = create_async_engine(
-    database_url,
+    settings.database_url,
     echo=settings.debug,
     future=True,
+    # PostgreSQL connection pool settings for production
+    pool_size=20,  # Number of connections to maintain
+    max_overflow=10,  # Additional connections if pool exhausted
+    pool_pre_ping=True,  # Verify connections are alive before using
+    pool_recycle=3600,  # Recycle connections after 1 hour
+    # For testing/development, can use NullPool:
+    # poolclass=NullPool if settings.debug else None,
 )
 
 async_session_maker = async_sessionmaker(
@@ -62,6 +61,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 @asynccontextmanager
 async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
     """Context manager for database sessions."""
+    async with async_session_maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Async generator for database sessions (for use in async for loops)."""
     async with async_session_maker() as session:
         try:
             yield session

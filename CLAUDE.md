@@ -59,7 +59,7 @@ pytest tests/ -v
 │ - REST/WebSocket API                                     │
 │ - JWT authentication                                     │
 │ - Container lifecycle management (aiodocker)             │
-│ - Session state tracking (SQLite + Redis)                │
+│ - Session state tracking (PostgreSQL + Redis)            │
 └──────────────────┬──────────────────────────────────────┘
                    │ Docker API
 ┌──────────────────▼──────────────────────────────────────┐
@@ -73,7 +73,7 @@ pytest tests/ -v
 ┌──────────────────▼──────────────────────────────────────┐
 │ Storage Layer                                            │
 │ - Redis: real-time pub/sub, session state               │
-│ - SQLite: session metadata, message history             │
+│ - PostgreSQL: session metadata, message history          │
 │ - MinIO: workspace snapshots, artifacts                 │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -251,12 +251,92 @@ POST /api/v1/sessions/{parent_id}/spawn
 - **Redis is the communication backbone**: All real-time state flows through pub/sub
 - **Container isolation is critical**: Each session must be fully isolated for security
 
+## Database (PostgreSQL)
+
+### Overview
+
+CC-Docker uses PostgreSQL 16 for all persistent data storage:
+- Session metadata and state
+- Message history
+- Discord interaction tracking
+- Parent-child session relationships
+
+### Configuration
+
+PostgreSQL is configured with production-ready settings in docker-compose.yml:
+- **Max connections**: 200 (supports many concurrent sessions)
+- **Shared buffers**: 256MB (effective caching)
+- **Connection pooling**: 20 base + 10 overflow in SQLAlchemy
+- **Pool recycling**: 1 hour (prevents stale connections)
+- **Health checks**: Automatic restart on failure
+
+### Connection String Format
+
+```
+postgresql+asyncpg://user:password@host:port/database
+```
+
+Environment variables:
+- `POSTGRES_USER`: Database user (default: ccadmin)
+- `POSTGRES_PASSWORD`: User password (CHANGE IN PRODUCTION)
+- `POSTGRES_DB`: Database name (default: ccdocker)
+
+### Common Operations
+
+**Connect to database**:
+```bash
+docker exec -it cc-docker-postgres-1 psql -U ccadmin -d ccdocker
+```
+
+**View tables**:
+```sql
+\dt
+```
+
+**Query sessions**:
+```sql
+SELECT id, status, created_at FROM sessions ORDER BY created_at DESC LIMIT 10;
+```
+
+**Check connection count**:
+```sql
+SELECT count(*) FROM pg_stat_activity WHERE datname = 'ccdocker';
+```
+
+**Manual backup**:
+```bash
+docker exec cc-docker-postgres-1 pg_dump -U ccadmin ccdocker > backup.sql
+```
+
+**Restore backup**:
+```bash
+cat backup.sql | docker exec -i cc-docker-postgres-1 psql -U ccadmin ccdocker
+```
+
+### Performance Tuning
+
+If experiencing high load, adjust in docker-compose.yml:
+- Increase `shared_buffers` for more caching
+- Increase `max_connections` for more concurrent sessions
+- Adjust `work_mem` for complex queries
+
+### Migrations
+
+Schema changes are handled by SQLAlchemy's `create_all()` at startup. For production deployments, use Alembic for proper migrations.
+
 ## Troubleshooting
 
 **Container fails to start**:
 - Check gateway logs: `docker-compose logs -f gateway`
-- Check Redis connectivity: `docker exec -it cc-docker-redis redis-cli ping`
+- Check PostgreSQL connectivity: `docker exec -it cc-docker-postgres-1 pg_isready`
+- Check Redis connectivity: `docker exec -it cc-docker-redis-1 redis-cli ping`
 - Verify container image exists: `docker images | grep cc-docker-container`
+
+**Database connection errors**:
+- Verify PostgreSQL is running: `docker-compose ps postgres`
+- Check credentials in `.env` match docker-compose.yml
+- Check connection pool isn't exhausted: See "Check connection count" above
+- Review gateway logs: `docker-compose logs -f gateway | grep -i database`
 
 **Claude Code not discovering MCP servers**:
 - Verify `.mcp.json` exists in `/workspace/`: `docker exec <container> cat /workspace/.mcp.json`

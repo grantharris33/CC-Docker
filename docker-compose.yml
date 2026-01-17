@@ -8,7 +8,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///data/cc-docker.db
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ccadmin}:${POSTGRES_PASSWORD:-change-me-in-production}@postgres:5432/${POSTGRES_DB:-ccdocker}
       - REDIS_URL=redis://redis:6379
       - MINIO_URL=http://minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
@@ -37,6 +37,8 @@ services:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       minio:
@@ -49,6 +51,62 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-ccadmin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me-in-production}
+      - POSTGRES_DB=${POSTGRES_DB:-ccdocker}
+      # Performance tuning
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_buffers=16MB
+      - -c
+      - default_statistics_target=100
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - work_mem=4MB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - max_worker_processes=4
+      - -c
+      - max_parallel_workers_per_gather=2
+      - -c
+      - max_parallel_workers=4
+      - -c
+      - max_parallel_maintenance_workers=2
+    ports:
+      - "5432:5432"  # Expose for local development
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - cc-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ccadmin} -d ${POSTGRES_DB:-ccdocker}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
 
   redis:
@@ -86,6 +144,7 @@ services:
       retries: 5
 
 volumes:
+  postgres-data:
   redis-data:
   minio-data:
 

@@ -11,13 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from prometheus_client import make_asgi_app
 
-from app.api.routes import chat, discord, health, sessions, spawn
-from app.api.websocket import stream
+from app.api.routes import chat, discord, health, sessions, spawn, tasks
+from app.api.websocket import stream, vnc
 from app.core.config import get_settings
 from app.core.security import create_token
-from app.db.database import init_db
+from app.db.database import init_db, get_db
 from app.services.container import container_manager
 from app.services.discord import start_discord_bot, stop_discord_bot
+from app.services.scheduler import SchedulerService
 
 settings = get_settings()
 
@@ -44,10 +45,27 @@ async def lifespan(app: FastAPI):
     await start_discord_bot(redis_client)
     logger.info("Discord bot initialized")
 
+    # Start task scheduler
+    scheduler = SchedulerService()
+    await scheduler.start()
+    logger.info("Task scheduler started")
+
+    # Load all enabled task schedules from database
+    async for db in get_db():
+        try:
+            await scheduler.reload_all_schedules(db)
+            logger.info("Task schedules loaded")
+        finally:
+            break
+
+    # Store scheduler in app state for access in routes
+    app.state.scheduler = scheduler
+
     yield
 
     # Shutdown
     logger.info("Shutting down CC-Docker Gateway...")
+    await scheduler.shutdown()
     await stop_discord_bot()
     await container_manager.close()
     await redis_client.aclose()
@@ -91,7 +109,13 @@ app.include_router(
     stream.router, prefix="/api/v1/sessions", tags=["WebSocket"]
 )
 app.include_router(
+    vnc.router, prefix="/api/v1/sessions", tags=["VNC"]
+)
+app.include_router(
     discord.router, prefix="/api/v1/discord", tags=["Discord"]
+)
+app.include_router(
+    tasks.router, prefix="/api/v1/tasks", tags=["Tasks"]
 )
 
 
@@ -112,6 +136,8 @@ async def api_info():
         "version": "v1",
         "endpoints": {
             "sessions": "/api/v1/sessions",
+            "tasks": "/api/v1/tasks",
+            "discord": "/api/v1/discord",
             "health": "/health",
             "metrics": "/metrics",
         },

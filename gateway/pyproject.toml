@@ -35,6 +35,14 @@ dependencies = [
     # Discord integration
     "discord-py>=2.3.0",
 
+    # Task scheduling
+    "apscheduler>=3.10.0",
+    "croniter>=2.0.0",
+    "pytz>=2024.1",
+
+    # Pushover notifications
+    "requests>=2.31.0",
+
     # Additional utilities
     "python-multipart>=0.0.6",
     "httpx>=0.26.0",

@@ -7,20 +7,21 @@ from typing import Optional
 from uuid import uuid4
 
 import discord
-from discord.ext import tasks
+from discord import app_commands
+from discord.ext import commands, tasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.database import get_db_session
-from app.db.models import DiscordInteraction, Session as SessionModel
+from app.db.models import DiscordInteraction, Session as SessionModel, Task
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-class CCDiscordBot(discord.Client):
-    """Discord bot for CC-Docker interactions."""
+class CCDiscordBot(commands.Bot):
+    """Discord bot for CC-Docker interactions with slash commands."""
 
     def __init__(self, channel_id: int, redis_client):
         """Initialize Discord bot.
@@ -33,12 +34,82 @@ class CCDiscordBot(discord.Client):
         intents.message_content = True  # Required to read message content
         intents.messages = True
 
-        super().__init__(intents=intents)
+        super().__init__(command_prefix="/", intents=intents)
 
         self.channel_id = channel_id
         self.redis = redis_client
         self.channel: Optional[discord.TextChannel] = None
         self.update_task_started = False
+        self.tree.on_error = self.on_app_command_error
+
+    async def setup_hook(self):
+        """Setup hook called before bot starts."""
+        # Register slash commands
+        await self.register_slash_commands()
+
+    async def register_slash_commands(self):
+        """Register all slash commands with Discord."""
+        # Task management commands
+        @self.tree.command(name="task-create", description="Create a new automated task")
+        @app_commands.describe(
+            name="Task name (lowercase with hyphens)",
+            prompt="Task prompt template with {parameters}",
+            description="Task description"
+        )
+        async def task_create(
+            interaction: discord.Interaction,
+            name: str,
+            prompt: str,
+            description: str = ""
+        ):
+            await self.handle_task_create(interaction, name, prompt, description)
+
+        @self.tree.command(name="task-list", description="List all tasks")
+        @app_commands.describe(
+            task_type="Filter by task type",
+            enabled="Filter by enabled status"
+        )
+        async def task_list(
+            interaction: discord.Interaction,
+            task_type: Optional[str] = None,
+            enabled: Optional[bool] = None
+        ):
+            await self.handle_task_list(interaction, task_type, enabled)
+
+        @self.tree.command(name="task-start", description="Start a task manually")
+        @app_commands.describe(
+            task_name="Name of the task to start"
+        )
+        async def task_start(interaction: discord.Interaction, task_name: str):
+            await self.handle_task_start(interaction, task_name)
+
+        @self.tree.command(name="task-stop", description="Stop a running task")
+        @app_commands.describe(
+            task_name="Name of the task to stop"
+        )
+        async def task_stop(interaction: discord.Interaction, task_name: str):
+            await self.handle_task_stop(interaction, task_name)
+
+        @self.tree.command(name="task-schedule", description="Schedule a task with cron")
+        @app_commands.describe(
+            task_name="Name of the task",
+            cron="Cron expression (e.g., '0 9 * * *' for 9am daily)"
+        )
+        async def task_schedule(
+            interaction: discord.Interaction,
+            task_name: str,
+            cron: str
+        ):
+            await self.handle_task_schedule(interaction, task_name, cron)
+
+        @self.tree.command(name="session-vnc", description="Get VNC access link for a session")
+        @app_commands.describe(
+            session_id="Session ID to access"
+        )
+        async def session_vnc(interaction: discord.Interaction, session_id: str):
+            await self.handle_session_vnc(interaction, session_id)
+
+        logger.info("Slash commands registered")
 
     async def on_ready(self):
         """Called when the bot is ready."""
@@ -51,6 +122,13 @@ class CCDiscordBot(discord.Client):
             return
 
         logger.info(f"Monitoring channel: #{self.channel.name} ({self.channel_id})")
+
+        # Sync slash commands with Discord
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"Synced {len(synced)} slash command(s)")
+        except Exception as e:
+            logger.error(f"Failed to sync slash commands: {e}")
 
         # Start the periodic update task
         if not self.update_task_started:
@@ -319,6 +397,234 @@ class CCDiscordBot(discord.Client):
         await thread.send(content)
 
         logger.info(f"Posted retry message in thread {thread_id} (attempt {attempt}/{max_attempts})")
+
+    async def on_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError
+    ):
+        """Handle slash command errors."""
+        logger.error(f"Slash command error: {error}", exc_info=error)
+
+        if interaction.response.is_done():
+            await interaction.followup.send(f"❌ Error: {str(error)}", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"❌ Error: {str(error)}", ephemeral=True)
+
+    async def handle_task_create(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        prompt: str,
+        description: str
+    ):
+        """Handle /task-create command."""
+        await interaction.response.defer()
+
+        try:
+            from app.services.task import TaskService
+            from app.models.task import TaskCreate, TaskConfig
+
+            async for db in get_db_session():
+                try:
+                    task_service = TaskService(db)
+
+                    task_data = TaskCreate(
+                        task_name=name,
+                        task_type="manual",
+                        description=description,
+                        template_prompt=prompt,
+                        config=TaskConfig(),
+                        owner_user_id=str(interaction.user.id)
+                    )
+
+                    task = await task_service.create_task(task_data)
+
+                    await interaction.followup.send(
+                        f"✅ **Task Created**\n\n"
+                        f"Name: `{task.task_name}`\n"
+                        f"ID: `{task.id}`\n"
+                        f"Description: {task.description or 'None'}\n\n"
+                        f"Use `/task-start {task.task_name}` to run it manually."
+                    )
+
+                finally:
+                    await db.close()
+
+        except Exception as e:
+            logger.error(f"Error creating task: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Failed to create task: {str(e)}")
+
+    async def handle_task_list(
+        self,
+        interaction: discord.Interaction,
+        task_type: Optional[str],
+        enabled: Optional[bool]
+    ):
+        """Handle /task-list command."""
+        await interaction.response.defer()
+
+        try:
+            from app.services.task import TaskService
+
+            async for db in get_db_session():
+                try:
+                    task_service = TaskService(db)
+                    tasks, total = await task_service.list_tasks(
+                        owner_user_id=str(interaction.user.id),
+                        task_type=task_type,
+                        enabled=enabled,
+                        limit=20
+                    )
+
+                    if not tasks:
+                        await interaction.followup.send("📋 No tasks found.")
+                        return
+
+                    lines = ["📋 **Your Tasks**\n"]
+                    for task in tasks:
+                        status = "✅" if task.enabled else "⏸️"
+                        schedule = f" | `{task.schedule_cron}`" if task.schedule_cron else ""
+                        lines.append(
+                            f"{status} **{task.task_name}** ({task.task_type}){schedule}\n"
+                            f"   Runs: {task.run_count} | Success: {task.success_count} | "
+                            f"Failed: {task.failure_count}"
+                        )
+
+                    lines.append(f"\n_Total: {total} tasks_")
+
+                    await interaction.followup.send("\n".join(lines))
+
+                finally:
+                    await db.close()
+
+        except Exception as e:
+            logger.error(f"Error listing tasks: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Failed to list tasks: {str(e)}")
+
+    async def handle_task_start(self, interaction: discord.Interaction, task_name: str):
+        """Handle /task-start command."""
+        await interaction.response.defer()
+
+        try:
+            from app.services.task import TaskService
+
+            async for db in get_db_session():
+                try:
+                    task_service = TaskService(db)
+                    task = await task_service.get_task(task_name=task_name)
+
+                    if not task:
+                        await interaction.followup.send(f"❌ Task `{task_name}` not found.")
+                        return
+
+                    # Start task with empty parameters (use defaults)
+                    task_run, filled_prompt = await task_service.start_task(
+                        task_id=task.id,
+                        parameters=task.optional_parameters or {},
+                        trigger="manual",
+                        triggered_by_user_id=str(interaction.user.id)
+                    )
+
+                    await interaction.followup.send(
+                        f"🚀 **Task Started**\n\n"
+                        f"Task: `{task.task_name}`\n"
+                        f"Run ID: `{task_run.id}`\n"
+                        f"Status: {task_run.status}\n\n"
+                        f"Monitor progress in this channel."
+                    )
+
+                finally:
+                    await db.close()
+
+        except Exception as e:
+            logger.error(f"Error starting task: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Failed to start task: {str(e)}")
+
+    async def handle_task_stop(self, interaction: discord.Interaction, task_name: str):
+        """Handle /task-stop command."""
+        await interaction.response.defer()
+        await interaction.followup.send(
+            f"⚠️ Task stop not yet implemented. Task: `{task_name}`"
+        )
+
+    async def handle_task_schedule(
+        self,
+        interaction: discord.Interaction,
+        task_name: str,
+        cron: str
+    ):
+        """Handle /task-schedule command."""
+        await interaction.response.defer()
+
+        try:
+            from app.services.task import TaskService
+            from app.services.scheduler import SchedulerService
+            from app.models.task import TaskUpdate
+
+            async for db in get_db_session():
+                try:
+                    task_service = TaskService(db)
+                    scheduler = SchedulerService()
+
+                    task = await task_service.get_task(task_name=task_name)
+
+                    if not task:
+                        await interaction.followup.send(f"❌ Task `{task_name}` not found.")
+                        return
+
+                    # Validate cron expression
+                    if not scheduler.validate_cron(cron):
+                        await interaction.followup.send(
+                            f"❌ Invalid cron expression: `{cron}`\n\n"
+                            f"Example: `0 9 * * *` = daily at 9:00 AM"
+                        )
+                        return
+
+                    # Update task schedule
+                    update_data = TaskUpdate(schedule_cron=cron)
+                    task = await task_service.update_task(task.id, update_data)
+
+                    # Add to scheduler
+                    await scheduler.add_task_schedule(task, db)
+
+                    # Get next run times
+                    next_runs = await scheduler.get_next_run_times(cron, count=3)
+                    next_times = "\n".join([f"  • {t.strftime('%Y-%m-%d %H:%M:%S')}" for t in next_runs])
+
+                    await interaction.followup.send(
+                        f"⏰ **Task Scheduled**\n\n"
+                        f"Task: `{task.task_name}`\n"
+                        f"Schedule: `{cron}`\n\n"
+                        f"**Next 3 runs:**\n{next_times}"
+                    )
+
+                finally:
+                    await db.close()
+
+        except Exception as e:
+            logger.error(f"Error scheduling task: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Failed to schedule task: {str(e)}")
+
+    async def handle_session_vnc(self, interaction: discord.Interaction, session_id: str):
+        """Handle /session-vnc command."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # TODO: Generate temporary VNC access token
+            vnc_url = f"{settings.gateway_url}/vnc/{session_id}"
+
+            await interaction.followup.send(
+                f"🖥️ **VNC Access**\n\n"
+                f"Session: `{session_id}`\n"
+                f"VNC URL: {vnc_url}\n\n"
+                f"⚠️ This link provides desktop access to the session container.",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting VNC link: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Failed to get VNC link: {str(e)}", ephemeral=True)
 
     def _format_question_message(
         self,

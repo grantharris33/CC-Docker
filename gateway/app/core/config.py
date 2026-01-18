@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     discord_max_retries: int = 3  # Total attempts before failing
     discord_update_interval: int = 300  # Update countdown every 5 minutes
 
+    # Pushover Notifications
+    pushover_api_token: Optional[str] = None
+
+    # Gateway URL (for generating VNC links, etc.)
+    gateway_url: str = "http://localhost:8000"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

@@ -16,6 +16,7 @@ services:
       - CONTAINER_IMAGE=cc-docker-container:latest
       - CONTAINER_NETWORK=cc-docker_cc-internal
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - GATEWAY_URL=${GATEWAY_URL:-http://localhost:8000}
       - CLAUDE_CONFIG_PATH=${CLAUDE_CONFIG_PATH:-}
       - CLAUDE_CREDENTIALS_PATH=${CLAUDE_CREDENTIALS_PATH:-}
       # Secrets for MCP servers (injected into containers)
@@ -31,6 +32,8 @@ services:
       - DISCORD_QUESTION_TIMEOUT=${DISCORD_QUESTION_TIMEOUT:-1800}
       - DISCORD_MAX_RETRIES=${DISCORD_MAX_RETRIES:-3}
       - DISCORD_UPDATE_INTERVAL=${DISCORD_UPDATE_INTERVAL:-300}
+      # Pushover Notifications
+      - PUSHOVER_API_TOKEN=${PUSHOVER_API_TOKEN:-}
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock
